@@ -4,6 +4,7 @@
 #include <SKSE/SKSE.h>
 #include <SKSE/Logger.h>
 
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
