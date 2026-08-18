@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "AppearanceSnapshot.h"
+#include "RaceMenuProbe.h"
 
 namespace
 {
@@ -26,6 +27,19 @@ namespace
         spdlog::flush_on(spdlog::level::trace);
     }
 
+    void ProbeLoadedPlayer()
+    {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (!player) {
+            SKSE::log::error("PostLoadGame: PlayerCharacter is unavailable");
+            return;
+        }
+
+        auto& probe = DAVSyncTogether::RaceMenuProbe::GetSingleton();
+        auto snapshot = probe.CaptureLocalPlayer(player);
+        probe.LogSnapshot(snapshot, player);
+    }
+
     void OnSKSEMessage(SKSE::MessagingInterface::Message* message)
     {
         if (!message) {
@@ -34,27 +48,18 @@ namespace
 
         switch (message->type) {
         case SKSE::MessagingInterface::kPostPostLoad:
-            SKSE::log::info("PostPostLoad: appearance integrations may now be queried");
+            SKSE::log::info("PostPostLoad: querying RaceMenu/SKEE interfaces");
+            DAVSyncTogether::RaceMenuProbe::GetSingleton().Initialize();
             break;
 
         case SKSE::MessagingInterface::kDataLoaded:
-        {
-            auto* player = RE::PlayerCharacter::GetSingleton();
-            if (!player) {
-                SKSE::log::error("DataLoaded: PlayerCharacter is unavailable");
-                break;
-            }
-
-            DAVSyncTogether::AppearanceSnapshot snapshot;
-            snapshot.playerName = player->GetName();
-
-            if (auto* race = player->GetRace()) {
-                snapshot.raceEditorID = race->GetFormEditorID();
-            }
-
-            SKSE::log::info("DataLoaded: DAVSync Together core ready; {}", snapshot.Summary());
+            SKSE::log::info("DataLoaded: DAVSync Together core ready; waiting for loaded player appearance");
             break;
-        }
+
+        case SKSE::MessagingInterface::kPostLoadGame:
+            SKSE::log::info("PostLoadGame: capturing local appearance probe");
+            ProbeLoadedPlayer();
+            break;
 
         default:
             break;
