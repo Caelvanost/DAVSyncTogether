@@ -5,6 +5,8 @@
 
 namespace
 {
+    std::jthread g_delayedProbeThread;
+
     void InitLogging()
     {
         auto path = SKSE::log::log_directory();
@@ -27,17 +29,51 @@ namespace
         spdlog::flush_on(spdlog::level::trace);
     }
 
-    void ProbeLoadedPlayer()
+    void ProbeLoadedPlayer(std::string_view reason)
     {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) {
-            SKSE::log::error("PostLoadGame: PlayerCharacter is unavailable");
+            SKSE::log::error("{}: PlayerCharacter is unavailable", reason);
             return;
         }
 
         auto& probe = DAVSyncTogether::RaceMenuProbe::GetSingleton();
         auto snapshot = probe.CaptureLocalPlayer(player);
+        SKSE::log::info("DAVST PROBE reason={}", reason);
         probe.LogSnapshot(snapshot, player);
+    }
+
+    void ScheduleDelayedProbe()
+    {
+        if (g_delayedProbeThread.joinable()) {
+            g_delayedProbeThread.request_stop();
+            g_delayedProbeThread.join();
+        }
+
+        g_delayedProbeThread = std::jthread([](std::stop_token token) {
+            constexpr auto slice = std::chrono::milliseconds(100);
+            constexpr auto delay = std::chrono::seconds(2);
+            auto elapsed = std::chrono::milliseconds(0);
+
+            while (elapsed < delay && !token.stop_requested()) {
+                std::this_thread::sleep_for(slice);
+                elapsed += slice;
+            }
+
+            if (token.stop_requested()) {
+                return;
+            }
+
+            auto* tasks = SKSE::GetTaskInterface();
+            if (!tasks) {
+                SKSE::log::error("DAVST delayed probe: SKSE task interface unavailable");
+                return;
+            }
+
+            tasks->AddTask([]() {
+                ProbeLoadedPlayer("PostLoadGame+2s");
+            });
+        });
     }
 
     void OnSKSEMessage(SKSE::MessagingInterface::Message* message)
@@ -58,7 +94,8 @@ namespace
 
         case SKSE::MessagingInterface::kPostLoadGame:
             SKSE::log::info("PostLoadGame: capturing local appearance probe");
-            ProbeLoadedPlayer();
+            ProbeLoadedPlayer("PostLoadGame");
+            ScheduleDelayedProbe();
             break;
 
         default:
