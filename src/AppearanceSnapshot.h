@@ -7,6 +7,7 @@ namespace DAVSyncTogether
     struct MorphValue
     {
         std::string name;
+        std::string key;
         float value{ 0.0F };
     };
 
