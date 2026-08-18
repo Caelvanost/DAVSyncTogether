@@ -39,6 +39,18 @@ namespace
 
         auto& probe = DAVSyncTogether::RaceMenuProbe::GetSingleton();
         auto snapshot = probe.CaptureLocalPlayer(player);
+
+        const auto before = snapshot.faceMorphs.size();
+        std::erase_if(snapshot.faceMorphs, [](const DAVSyncTogether::MorphValue& morph) {
+            return !std::isfinite(morph.value) ||
+                   morph.value == std::numeric_limits<float>::max();
+        });
+        if (snapshot.faceMorphs.size() != before) {
+            SKSE::log::info(
+                "DAVST FACE_MORPH filteredSentinels={}",
+                before - snapshot.faceMorphs.size());
+        }
+
         SKSE::log::info("DAVST PROBE reason={}", reason);
         probe.LogSnapshot(snapshot, player);
     }
