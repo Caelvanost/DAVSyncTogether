@@ -16,9 +16,20 @@ Its goal is to synchronize player **appearance** between clients, complementing 
 
 ## Project status
 
-**v0.1.0 — initial development scaffold**
+**v0.1.2 — RaceMenu/SKEE local appearance probe**
 
-The first milestone establishes the native plugin, appearance snapshot model, serialization boundary, logging, build tooling, and packaging layout. Runtime RaceMenu/SKEE capture and remote proxy application are implemented incrementally on top of this foundation.
+The plugin now exchanges interfaces with RaceMenu/SKEE after plugin loading and captures the loaded local player at `PostLoadGame` instead of probing the placeholder player at `DataLoaded`.
+
+The diagnostic snapshot currently records:
+
+- TESNPC face morph values
+- RaceMenu/SKEE BodyMorph values and morph keys
+- current head parts, including hair
+- the actor skin identity
+- RaceMenu overlay interface state and slot formats
+- live overlay scene-node names for face/body diagnostics
+
+This milestone is intentionally read-only. It does not transmit or apply appearance data to Skyrim Together proxy actors yet.
 
 ## Architecture
 
