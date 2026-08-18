@@ -16,18 +16,18 @@ Its goal is to synchronize player **appearance** between clients, complementing 
 
 ## Project status
 
-**v0.1.2 — RaceMenu/SKEE local appearance probe**
+**v0.1.3 — delayed RaceMenu/SKEE appearance probe**
 
-The plugin now exchanges interfaces with RaceMenu/SKEE after plugin loading and captures the loaded local player at `PostLoadGame` instead of probing the placeholder player at `DataLoaded`.
+The plugin exchanges interfaces with RaceMenu/SKEE and captures the loaded local player after `PostLoadGame`. It now performs both an immediate probe and a second probe two seconds later so RaceMenu has time to finish attaching live overlay geometry to the player's 3D.
 
 The diagnostic snapshot currently records:
 
-- TESNPC face morph values
+- TESNPC face morph values, excluding Skyrim sentinel values such as `FLT_MAX`
 - RaceMenu/SKEE BodyMorph values and morph keys
 - current head parts, including hair
 - the actor skin identity
 - RaceMenu overlay interface state and slot formats
-- live overlay scene-node names for face/body diagnostics
+- live overlay scene-node names for face/body diagnostics when those nodes are present
 
 This milestone is intentionally read-only. It does not transmit or apply appearance data to Skyrim Together proxy actors yet.
 
