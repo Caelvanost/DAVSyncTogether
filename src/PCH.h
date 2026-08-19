@@ -14,12 +14,14 @@
 #include <cstdint>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
