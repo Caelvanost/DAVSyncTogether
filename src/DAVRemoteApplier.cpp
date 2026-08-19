@@ -59,19 +59,22 @@ namespace DAVSyncTogether
             return;
         }
 
-        // DAV hidden-helmet variants normally expose head/hair despite the original
-        // ARMO remaining equipped on the STR proxy. Restore those head parts while
-        // hidden; return to the normal equipped-helmet visibility when visible again.
-        if (usesHead) {
+        // Never cull the actor face node ourselves. Doing so can make the entire remote
+        // head disappear and steps outside DAVSync's equipment-visual responsibility.
+        // For a hidden helmet we may only undo an existing app-cull so the face remains
+        // visible while the original head-slot ARMO is still equipped on the STR proxy.
+        if (hidden && usesHead) {
             if (auto* face = actor->GetFaceNodeSkinned()) {
-                const bool wantCull = !hidden;
-                if (face->GetAppCulled() != wantCull) {
-                    face->CullNode(wantCull);
+                if (face->GetAppCulled()) {
+                    face->CullNode(false);
                     ++result.headFixes;
                 }
             }
         }
 
+        // Hair is the only head part DAVSync actively toggles. A DAV-hidden helmet must
+        // reveal it even though the source ARMO still occupies slot 31 on the proxy.
+        // When the helmet is visible again, restore the slot-31 hidden state.
         if (usesHair) {
             if (auto* hair = actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair)) {
                 const bool wantCull = !hidden;
