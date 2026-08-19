@@ -1,6 +1,6 @@
 {
   "name": "dav-sync-together",
-  "version-string": "0.1.3",
+  "version-string": "0.2.0",
   "dependencies": [
     "commonlibsse-ng"
   ]
