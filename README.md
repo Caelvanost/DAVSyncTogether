@@ -17,22 +17,32 @@ Those concerns belong to MorphSync Together and IEDSync Together respectively.
 
 ## Current status
 
-**v0.2.1 — targeted DAV armor-state probe**
+**v0.2.2 — load-order-safe DAV form identities**
 
-This milestone replaces the broad scene-graph diff used by v0.2.0 with a DAV-specific representation.
+The targeted armor-state probe from v0.2.1 now represents ARMO and ARMA forms with a stable identity:
 
-For every worn ARMO that has Armor Addons, DAVSync now:
+```text
+plugin filename + local FormID
+```
 
-- scans the live player 3D only for Skyrim biped armor geometry names
-- parses rendered `ARMA -> ARMO` pairs such as `"(FE02380B)[0]/ (FE023803) [100%]"`
-- compares rendered ARMA forms with the ARMO's original Armor Addons
-- classifies the effective visual state as:
-  - `VISIBLE` — rendered ARMA belongs to the original ARMO
-  - `HIDDEN` — the ARMO is worn but no matching biped ARMA is rendered
-  - `REPLACED` — at least one rendered ARMA is not one of the ARMO's original Armor Addons
-- logs `UNEQUIPPED` when a previously tracked ARMO is removed
+instead of relying on the runtime FormID assigned by the local load order.
 
-The state hash no longer includes unrelated RaceMenu, SMP, IED or other scene nodes, so those systems should not generate DAVSync state changes.
+For each form, DAVSync records:
+
+- the current runtime FormID for diagnostics only
+- the source plugin filename from `TESForm::GetFile(0)`
+- the plugin-local FormID from `TESForm::GetLocalFormID()`
+
+The stable identity is used by the DAV state hash and by local state comparison. This is intended to let Player1 and Player2 identify the same ARMO/ARMA even when their runtime load-order indices differ.
+
+DAVSync also performs a local round-trip validation with `TESDataHandler::LookupForm(localFormID, pluginName)` and logs whether the stable identity resolves back to the original runtime form.
+
+The effective DAV visual state remains classified as:
+
+- `VISIBLE` — rendered ARMA belongs to the original ARMO
+- `HIDDEN` — the ARMO is worn but no matching biped ARMA is rendered
+- `REPLACED` — at least one rendered ARMA is not one of the ARMO's original Armor Addons
+- `UNEQUIPPED` — a previously tracked ARMO is no longer worn
 
 This milestone is still read-only. It does not transmit or apply state to Skyrim Together proxies yet.
 
@@ -47,7 +57,7 @@ Dynamic Armor Variants Extended (DAVE) may be supported later as an optional ric
 ## Planned architecture
 
 1. **DAV local-state capture** — determine the effective DAV-controlled visual state of the local player.
-2. **Stable equipment identity** — encode armor/armor-addon identities in a load-order-safe form.
+2. **Stable equipment identity** — encode armor/armor-addon identities in a load-order-safe form. **Implemented in v0.2.2.**
 3. **Transport** — exchange DAV state between Skyrim Together clients.
 4. **STR proxy resolution** — associate remote player identities with their proxy actors.
 5. **DAV state application** — reproduce the sender's DAV visual state on the corresponding proxy.
@@ -87,7 +97,7 @@ with the DLL packaged as:
 SKSE/Plugins/DAVSyncTogether.dll
 ```
 
-## Test procedure for v0.2.1
+## Test procedure for v0.2.2
 
 After loading a save:
 
@@ -99,27 +109,22 @@ After loading a save:
 6. unequip the helmet
 7. re-equip it
 
-Inspect `DAVSyncTogether.log`. The relevant lines are now only:
+Inspect `DAVSyncTogether.log` for:
 
 ```text
-DAVST DAV_STATE ...
-DAVST ARMOR_STATE armo=... state=VISIBLE ...
-DAVST ARMOR_STATE armo=... state=HIDDEN ...
-DAVST ARMOR_STATE armo=... state=REPLACED ...
-DAVST ARMOR_STATE armo=... state=UNEQUIPPED ...
+DAVST ARMOR_STATE ...
+DAVST FORM_ID role=ARMO ... roundtrip=1
+DAVST FORM_ID role=BASE_ARMA ... roundtrip=1
+DAVST FORM_ID role=ACTIVE_ARMA ... roundtrip=1
 ```
 
-For the Iron Plate Helmet test already identified in v0.2.0, the expected visible state should resolve approximately as:
+A successful identity line looks like:
 
 ```text
-armo=FE023803 state=VISIBLE baseARMA=[FE02380B] activeARMA=[FE02380B]
+runtime=FE...... plugin="SomePlugin.esl" local=00000... resolved=FE...... roundtrip=1
 ```
 
-and the DAV-hidden state as:
-
-```text
-armo=FE023803 state=HIDDEN baseARMA=[FE02380B] activeARMA=[]
-```
+The important validation criterion is that every tracked static ARMO/ARMA has a non-empty plugin name and `roundtrip=1`.
 
 ## Versioning
 
