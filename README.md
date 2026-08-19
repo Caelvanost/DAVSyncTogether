@@ -1,87 +1,109 @@
 # DAVSync Together
 
-DAVSync Together is an SKSE/CommonLibSSE-NG plugin for **Skyrim Special Edition / Anniversary Edition** designed for Skyrim Together Reborn setups.
+DAVSync Together is an SKSE/CommonLibSSE-NG plugin for **Skyrim Special Edition / Anniversary Edition** intended to synchronize the visual result of **Dynamic Armor Variants (DAV)** between players in **Skyrim Together Reborn**.
 
-Its goal is to synchronize player **appearance** between clients, complementing IEDSync Together's equipment-display synchronization.
+## Scope
 
-## Planned synchronization scope
+DAVSync Together is responsible only for DAV-controlled equipment visuals, such as armor-addon replacements and hidden/shown equipment variants.
 
-- RaceMenu face morphs
-- RaceMenu body morphs
-- RaceMenu face overlays
-- RaceMenu body overlays
-- RaceMenu makeup / tint-related appearance
-- Hair and other head parts
-- Body texture / skin variation identity
+It intentionally does **not** synchronize:
 
-## Project status
+- RaceMenu face or body morphs
+- overlays, makeup, body paint or skin appearance
+- hair/head-part customization
+- Immersive Equipment Displays nodes or favorite-item displays
 
-**v0.1.3 — delayed RaceMenu/SKEE appearance probe**
+Those concerns belong to MorphSync Together and IEDSync Together respectively.
 
-The plugin exchanges interfaces with RaceMenu/SKEE and captures the loaded local player after `PostLoadGame`. It now performs both an immediate probe and a second probe two seconds later so RaceMenu has time to finish attaching live overlay geometry to the player's 3D.
+## Current status
 
-The diagnostic snapshot currently records:
+**v0.2.0 — DAV local visual-state probe**
 
-- TESNPC face morph values, excluding Skyrim sentinel values such as `FLT_MAX`
-- RaceMenu/SKEE BodyMorph values and morph keys
-- current head parts, including hair
-- the actor skin identity
-- RaceMenu overlay interface state and slot formats
-- live overlay scene-node names for face/body diagnostics when those nodes are present
+The repository was refocused on Dynamic Armor Variants after an early experimental RaceMenu probe was identified as overlapping MorphSync Together.
 
-This milestone is intentionally read-only. It does not transmit or apply appearance data to Skyrim Together proxy actors yet.
+This milestone is read-only and does not yet send or apply remote state. It:
 
-## Architecture
+- detects whether `DynamicArmorVariants.dll` is loaded
+- monitors the local player every 500 ms
+- records currently worn armor forms
+- captures a stable signature of the player's live 3D scene graph
+- logs scene-node additions/removals whenever the visual state changes
 
-DAVSync Together is intentionally split into independent layers:
+This lets us identify exactly what DAV changes when a variant is applied without depending on Dynamic Armor Variants Extended.
 
-1. **Appearance capture** — reads the local player's RaceMenu/SKEE and Skyrim appearance state.
-2. **Appearance snapshot** — stable, versioned representation of morphs, overlays, head parts and skin identity.
-3. **Transport** — sends snapshots between Skyrim Together clients.
-4. **Proxy resolution** — identifies the remote player's Skyrim Together proxy actor.
-5. **Appearance application** — applies the received snapshot to the corresponding proxy and refreshes the relevant geometry/material state.
+## DAV compatibility strategy
 
-This separation is deliberate: appearance extraction/application is more fragile than networking and must be testable independently.
+The original Dynamic Armor Variants exposes Papyrus functions such as `GetVariants`, `GetEquippedArmorsWithVariants`, `ApplyVariant`, `ResetVariant` and `ResetAllVariants`, but does not expose a native getter for the currently active variant.
+
+DAVSync Together therefore starts by observing DAV's **effective visual result** rather than reading private DAV state. This keeps the initial implementation compatible with the original `DynamicArmorVariants.dll`.
+
+Dynamic Armor Variants Extended (DAVE) may be supported as an optional richer integration later, but it is not a required dependency for the current probe.
+
+## Planned architecture
+
+1. **DAV local-state capture** — determine the effective DAV-controlled visual state of the local player.
+2. **Stable equipment identity** — encode armor/armor-addon identities in a load-order-safe form.
+3. **Transport** — exchange DAV state between Skyrim Together clients.
+4. **STR proxy resolution** — associate remote player identities with their proxy actors.
+5. **DAV state application** — reproduce the sender's DAV visual state on the corresponding proxy.
+6. **Refresh handling** — refresh only the affected equipment/3D state and avoid unnecessary full actor rebuilds.
 
 ## Requirements
 
-Runtime requirements will ultimately include:
+Runtime:
 
 - Skyrim Special Edition / Anniversary Edition
 - SKSE
-- Address Library where required by the selected CommonLibSSE-NG runtime
-- RaceMenu for RaceMenu-specific synchronization features
 - Skyrim Together Reborn
+- Dynamic Armor Variants
 
-Build requirements:
+Build:
 
-- Visual Studio 2022/2026 with C++ workload
+- Visual Studio with the C++ workload
 - CMake 3.24+
 - vcpkg
 - CommonLibSSE-NG
 
 ## Building
 
-Configure and build with CMake/vcpkg, or use:
-
 ```bat
 build_release.bat
 ```
 
-Release packaging is written under `dist/`.
+The Vortex-ready archive is generated under:
+
+```text
+dist/DAVSyncTogether-<version>.zip
+```
+
+with the DLL packaged as:
+
+```text
+SKSE/Plugins/DAVSyncTogether.dll
+```
+
+## Test procedure for v0.2.0
+
+After loading a save, perform a DAV-relevant equipment sequence, for example:
+
+1. equip the helmet
+2. change its DAV variant / hidden state
+3. restore its visible/default DAV state
+4. unequip and re-equip it if useful
+
+Then inspect `DAVSyncTogether.log` for:
+
+- `DAVST DAV_STATE`
+- `DAVST WORN_ARMOR`
+- `DAVST SCENE_DIFF`
+- `DAVST SCENE_NODE +`
+- `DAVST SCENE_NODE -`
 
 ## Versioning
 
-The project uses semantic versioning:
-
-- patch version for small fixes
-- minor version for larger feature milestones
-- major version for incompatible protocol/release changes
-
-## Related projects
-
-- IEDSync Together — synchronizes Immersive Equipment Displays state between Skyrim Together players.
-- MorphSync Together — earlier appearance/morph synchronization experiments whose RaceMenu/SKEE findings inform DAVSync Together.
+- small fixes increment PATCH
+- larger feature changes increment MINOR and reset PATCH to zero
+- README and release archive version follow the project version
 
 ## License
 
