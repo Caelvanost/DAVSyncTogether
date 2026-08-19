@@ -9,13 +9,16 @@
 #include <spdlog/sinks/basic_file_sink.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
