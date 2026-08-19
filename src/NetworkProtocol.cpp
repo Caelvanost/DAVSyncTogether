@@ -23,15 +23,9 @@ namespace DAVSyncTogether
             }
 
             auto nibble = [](char c) -> int {
-                if (c >= '0' && c <= '9') {
-                    return c - '0';
-                }
-                if (c >= 'A' && c <= 'F') {
-                    return 10 + (c - 'A');
-                }
-                if (c >= 'a' && c <= 'f') {
-                    return 10 + (c - 'a');
-                }
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+                if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
                 return -1;
             };
 
@@ -48,22 +42,20 @@ namespace DAVSyncTogether
             return output;
         }
 
-        std::optional<std::string> ReadField(
-            std::string_view packet,
-            std::string_view key)
+        std::optional<std::string> ReadField(std::string_view payload, std::string_view key)
         {
             const auto needle = fmt::format("{}=", key);
-            auto position = packet.find(needle);
+            auto position = payload.find(needle);
             if (position == std::string_view::npos) {
                 return std::nullopt;
             }
 
             position += needle.size();
-            auto end = packet.find('|', position);
+            auto end = payload.find('|', position);
             if (end == std::string_view::npos) {
-                end = packet.size();
+                end = payload.size();
             }
-            return std::string(packet.substr(position, end - position));
+            return std::string(payload.substr(position, end - position));
         }
 
         std::optional<RE::FormID> ParseHexFormID(std::string_view text)
@@ -71,6 +63,7 @@ namespace DAVSyncTogether
             if (text.empty() || text.size() > 8) {
                 return std::nullopt;
             }
+
             try {
                 std::size_t consumed = 0;
                 const auto value = std::stoul(std::string(text), std::addressof(consumed), 16);
@@ -112,18 +105,10 @@ namespace DAVSyncTogether
 
         std::optional<NetworkArmorState> ParseState(std::string_view text)
         {
-            if (text == "VISIBLE") {
-                return NetworkArmorState::Visible;
-            }
-            if (text == "HIDDEN") {
-                return NetworkArmorState::Hidden;
-            }
-            if (text == "REPLACED") {
-                return NetworkArmorState::Replaced;
-            }
-            if (text == "UNEQUIPPED") {
-                return NetworkArmorState::Unequipped;
-            }
+            if (text == "VISIBLE") return NetworkArmorState::Visible;
+            if (text == "HIDDEN") return NetworkArmorState::Hidden;
+            if (text == "REPLACED") return NetworkArmorState::Replaced;
+            if (text == "UNEQUIPPED") return NetworkArmorState::Unequipped;
             return std::nullopt;
         }
     }
@@ -153,18 +138,16 @@ namespace DAVSyncTogether
             active);
     }
 
-    std::optional<RemoteArmorState> DecodeArmorState(std::string_view packet)
+    std::optional<RemoteArmorState> DecodeArmorState(std::string_view payload)
     {
-        if (packet.find("|DAVSTATE|") == std::string_view::npos &&
-            !packet.starts_with("DAVSTATE|")) {
+        if (!payload.starts_with("DAVSTATE|")) {
             return std::nullopt;
         }
 
-        const auto sender = ReadField(packet, "from");
-        const auto armorToken = ReadField(packet, "armo");
-        const auto stateToken = ReadField(packet, "state");
-        const auto activeToken = ReadField(packet, "active");
-        if (!sender || !armorToken || !stateToken || !activeToken) {
+        const auto armorToken = ReadField(payload, "armo");
+        const auto stateToken = ReadField(payload, "state");
+        const auto activeToken = ReadField(payload, "active");
+        if (!armorToken || !stateToken || !activeToken) {
             return std::nullopt;
         }
 
@@ -175,7 +158,6 @@ namespace DAVSyncTogether
         }
 
         RemoteArmorState result;
-        result.sender = *sender;
         result.armor = *armor;
         result.state = *state;
 
@@ -202,16 +184,11 @@ namespace DAVSyncTogether
     std::string_view NetworkArmorStateName(NetworkArmorState state) noexcept
     {
         switch (state) {
-        case NetworkArmorState::Visible:
-            return "VISIBLE";
-        case NetworkArmorState::Hidden:
-            return "HIDDEN";
-        case NetworkArmorState::Replaced:
-            return "REPLACED";
-        case NetworkArmorState::Unequipped:
-            return "UNEQUIPPED";
-        default:
-            return "UNKNOWN";
+        case NetworkArmorState::Visible: return "VISIBLE";
+        case NetworkArmorState::Hidden: return "HIDDEN";
+        case NetworkArmorState::Replaced: return "REPLACED";
+        case NetworkArmorState::Unequipped: return "UNEQUIPPED";
+        default: return "UNKNOWN";
         }
     }
 }
