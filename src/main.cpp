@@ -1,12 +1,9 @@
 #include "PCH.h"
 
-#include "AppearanceSnapshot.h"
-#include "RaceMenuProbe.h"
+#include "DAVProbe.h"
 
 namespace
 {
-    std::jthread g_delayedProbeThread;
-
     void InitLogging()
     {
         auto path = SKSE::log::log_directory();
@@ -29,85 +26,31 @@ namespace
         spdlog::flush_on(spdlog::level::trace);
     }
 
-    void ProbeLoadedPlayer(std::string_view reason)
-    {
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        if (!player) {
-            SKSE::log::error("{}: PlayerCharacter is unavailable", reason);
-            return;
-        }
-
-        auto& probe = DAVSyncTogether::RaceMenuProbe::GetSingleton();
-        auto snapshot = probe.CaptureLocalPlayer(player);
-
-        const auto before = snapshot.faceMorphs.size();
-        std::erase_if(snapshot.faceMorphs, [](const DAVSyncTogether::MorphValue& morph) {
-            return !std::isfinite(morph.value) ||
-                   morph.value == std::numeric_limits<float>::max();
-        });
-        if (snapshot.faceMorphs.size() != before) {
-            SKSE::log::info(
-                "DAVST FACE_MORPH filteredSentinels={}",
-                before - snapshot.faceMorphs.size());
-        }
-
-        SKSE::log::info("DAVST PROBE reason={}", reason);
-        probe.LogSnapshot(snapshot, player);
-    }
-
-    void ScheduleDelayedProbe()
-    {
-        if (g_delayedProbeThread.joinable()) {
-            g_delayedProbeThread.request_stop();
-            g_delayedProbeThread.join();
-        }
-
-        g_delayedProbeThread = std::jthread([](std::stop_token token) {
-            constexpr auto slice = std::chrono::milliseconds(100);
-            constexpr auto delay = std::chrono::seconds(2);
-            auto elapsed = std::chrono::milliseconds(0);
-
-            while (elapsed < delay && !token.stop_requested()) {
-                std::this_thread::sleep_for(slice);
-                elapsed += slice;
-            }
-
-            if (token.stop_requested()) {
-                return;
-            }
-
-            auto* tasks = SKSE::GetTaskInterface();
-            if (!tasks) {
-                SKSE::log::error("DAVST delayed probe: SKSE task interface unavailable");
-                return;
-            }
-
-            tasks->AddTask([]() {
-                ProbeLoadedPlayer("PostLoadGame+2s");
-            });
-        });
-    }
-
     void OnSKSEMessage(SKSE::MessagingInterface::Message* message)
     {
         if (!message) {
             return;
         }
 
+        auto& probe = DAVSyncTogether::DAVProbe::GetSingleton();
+
         switch (message->type) {
         case SKSE::MessagingInterface::kPostPostLoad:
-            SKSE::log::info("PostPostLoad: querying RaceMenu/SKEE interfaces");
-            DAVSyncTogether::RaceMenuProbe::GetSingleton().Initialize();
+            SKSE::log::info("PostPostLoad: DAVSync Together initialized; RaceMenu/SKEE integration intentionally disabled");
             break;
 
         case SKSE::MessagingInterface::kDataLoaded:
-            SKSE::log::info("DataLoaded: DAVSync Together core ready; waiting for loaded player appearance");
+            SKSE::log::info("DataLoaded: starting Dynamic Armor Variants local-state monitor");
+            probe.Start();
+            break;
+
+        case SKSE::MessagingInterface::kPreLoadGame:
+            probe.Reset();
             break;
 
         case SKSE::MessagingInterface::kPostLoadGame:
-            SKSE::log::info("PostLoadGame: capturing local appearance probe");
-            ProbeLoadedPlayer("PostLoadGame");
-            ScheduleDelayedProbe();
+            probe.Reset();
+            probe.QueueProbe("PostLoadGame");
             break;
 
         default:
