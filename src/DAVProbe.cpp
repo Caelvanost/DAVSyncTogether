@@ -1,5 +1,7 @@
 #include "DAVProbe.h"
 
+#include "DAVNetworkService.h"
+
 #include <Windows.h>
 
 namespace DAVSyncTogether
@@ -212,6 +214,8 @@ namespace DAVSyncTogether
             }
         }
 
+        auto& network = DAVNetworkService::GetSingleton();
+
         for (const auto& armor : current.wornArmors) {
             bool changed = !_hasPrevious;
             if (_hasPrevious) {
@@ -240,6 +244,8 @@ namespace DAVSyncTogether
             for (const auto& addon : armor.activeArmorAddons) {
                 LogIdentityRoundTrip("ACTIVE_ARMA", addon);
             }
+
+            network.SendArmorState(armor, false);
         }
 
         if (_hasPrevious) {
@@ -258,6 +264,7 @@ namespace DAVSyncTogether
                         armor.name,
                         FormatFormIdentities(armor.baseArmorAddons));
                     LogIdentityRoundTrip("ARMO", armor.armor);
+                    network.SendArmorState(armor, true);
                 }
             }
         }
