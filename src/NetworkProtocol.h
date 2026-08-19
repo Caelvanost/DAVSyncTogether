@@ -16,11 +16,13 @@ namespace DAVSyncTogether
     {
         FormIdentity armor;
         NetworkArmorState state{ NetworkArmorState::Visible };
+        std::string variant;
         std::vector<FormIdentity> activeArmorAddons;
     };
 
     [[nodiscard]] std::string EncodeArmorState(
         const WornArmorState& armor,
+        std::string_view variant,
         bool unequipped = false);
 
     [[nodiscard]] std::optional<RemoteArmorState> DecodeArmorState(
