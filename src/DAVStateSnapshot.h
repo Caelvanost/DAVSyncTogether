@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PCH.h"
+#include "FormIdentity.h"
 
 namespace DAVSyncTogether
 {
@@ -14,12 +14,12 @@ namespace DAVSyncTogether
 
     struct WornArmorState
     {
-        RE::FormID formID{ 0 };
+        FormIdentity armor;
         std::string editorID;
         std::string name;
         ArmorVisualState visualState{ ArmorVisualState::Unknown };
-        std::vector<RE::FormID> baseArmorAddons;
-        std::vector<RE::FormID> activeArmorAddons;
+        std::vector<FormIdentity> baseArmorAddons;
+        std::vector<FormIdentity> activeArmorAddons;
 
         [[nodiscard]] bool VisualEquivalent(const WornArmorState& rhs) const noexcept;
     };
