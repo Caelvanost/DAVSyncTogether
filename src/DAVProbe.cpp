@@ -8,6 +8,16 @@ namespace DAVSyncTogether
     {
         constexpr auto kProbeInterval = std::chrono::milliseconds(500);
         constexpr auto kSleepSlice = std::chrono::milliseconds(100);
+
+        void SortAndUniqueIdentities(std::vector<FormIdentity>& values)
+        {
+            std::sort(values.begin(), values.end(), FormIdentityLess);
+            values.erase(
+                std::unique(values.begin(), values.end(), [](const FormIdentity& lhs, const FormIdentity& rhs) {
+                    return lhs.StableEquivalent(rhs);
+                }),
+                values.end());
+        }
     }
 
     DAVProbe& DAVProbe::GetSingleton()
@@ -119,7 +129,7 @@ namespace DAVSyncTogether
             }
 
             WornArmorState state;
-            state.formID = armor->GetFormID();
+            state.armor = MakeFormIdentity(armor);
             if (const char* editorID = armor->GetFormEditorID(); editorID) {
                 state.editorID = editorID;
             }
@@ -127,29 +137,38 @@ namespace DAVSyncTogether
                 state.name = name;
             }
 
+            std::vector<RE::FormID> baseRuntimeAddons;
             for (auto* addon : armor->armorAddons) {
-                if (addon) {
-                    state.baseArmorAddons.push_back(addon->GetFormID());
+                if (!addon) {
+                    continue;
+                }
+                baseRuntimeAddons.push_back(addon->GetFormID());
+                state.baseArmorAddons.push_back(MakeFormIdentity(addon));
+            }
+            std::sort(baseRuntimeAddons.begin(), baseRuntimeAddons.end());
+            baseRuntimeAddons.erase(
+                std::unique(baseRuntimeAddons.begin(), baseRuntimeAddons.end()),
+                baseRuntimeAddons.end());
+            SortAndUniqueIdentities(state.baseArmorAddons);
+
+            std::vector<RE::FormID> activeRuntimeAddons;
+            if (const auto it = activeAddons.find(armor->GetFormID()); it != activeAddons.end()) {
+                activeRuntimeAddons = it->second;
+                for (const auto runtimeID : it->second) {
+                    state.activeArmorAddons.push_back(MakeFormIdentity(runtimeID));
                 }
             }
-            std::sort(state.baseArmorAddons.begin(), state.baseArmorAddons.end());
-            state.baseArmorAddons.erase(
-                std::unique(state.baseArmorAddons.begin(), state.baseArmorAddons.end()),
-                state.baseArmorAddons.end());
-
-            if (const auto it = activeAddons.find(state.formID); it != activeAddons.end()) {
-                state.activeArmorAddons = it->second;
-            }
+            SortAndUniqueIdentities(state.activeArmorAddons);
 
             state.visualState = ClassifyVisualState(
-                state.baseArmorAddons,
-                state.activeArmorAddons);
+                baseRuntimeAddons,
+                activeRuntimeAddons);
 
             snapshot.wornArmors.push_back(std::move(state));
         }
 
         std::sort(snapshot.wornArmors.begin(), snapshot.wornArmors.end(), [](const auto& lhs, const auto& rhs) {
-            return lhs.formID < rhs.formID;
+            return FormIdentityLess(lhs.armor, rhs.armor);
         });
 
         return snapshot;
@@ -186,17 +205,17 @@ namespace DAVSyncTogether
             current.Summary(),
             current.StateHash());
 
-        std::unordered_map<RE::FormID, const WornArmorState*> previousByForm;
+        std::unordered_map<std::string, const WornArmorState*> previousByForm;
         if (_hasPrevious) {
             for (const auto& armor : _previous.wornArmors) {
-                previousByForm.emplace(armor.formID, std::addressof(armor));
+                previousByForm.emplace(armor.armor.StableKey(), std::addressof(armor));
             }
         }
 
         for (const auto& armor : current.wornArmors) {
             bool changed = !_hasPrevious;
             if (_hasPrevious) {
-                const auto it = previousByForm.find(armor.formID);
+                const auto it = previousByForm.find(armor.armor.StableKey());
                 changed = it == previousByForm.end() || !armor.VisualEquivalent(*it->second);
             }
 
@@ -205,29 +224,40 @@ namespace DAVSyncTogether
             }
 
             SKSE::log::info(
-                "DAVST ARMOR_STATE armo={:08X} editorID=\"{}\" name=\"{}\" state={} baseARMA={} activeARMA={}",
-                armor.formID,
+                "DAVST ARMOR_STATE armoRuntime={:08X} armoStable=\"{}\" editorID=\"{}\" name=\"{}\" state={} baseARMA={} activeARMA={}",
+                armor.armor.runtimeFormID,
+                armor.armor.StableKey(),
                 armor.editorID,
                 armor.name,
                 ArmorVisualStateName(armor.visualState),
-                FormatFormIDs(armor.baseArmorAddons),
-                FormatFormIDs(armor.activeArmorAddons));
+                FormatFormIdentities(armor.baseArmorAddons),
+                FormatFormIdentities(armor.activeArmorAddons));
+
+            LogIdentityRoundTrip("ARMO", armor.armor);
+            for (const auto& addon : armor.baseArmorAddons) {
+                LogIdentityRoundTrip("BASE_ARMA", addon);
+            }
+            for (const auto& addon : armor.activeArmorAddons) {
+                LogIdentityRoundTrip("ACTIVE_ARMA", addon);
+            }
         }
 
         if (_hasPrevious) {
-            std::unordered_set<RE::FormID> currentForms;
+            std::unordered_set<std::string> currentForms;
             for (const auto& armor : current.wornArmors) {
-                currentForms.insert(armor.formID);
+                currentForms.insert(armor.armor.StableKey());
             }
 
             for (const auto& armor : _previous.wornArmors) {
-                if (!currentForms.contains(armor.formID)) {
+                if (!currentForms.contains(armor.armor.StableKey())) {
                     SKSE::log::info(
-                        "DAVST ARMOR_STATE armo={:08X} editorID=\"{}\" name=\"{}\" state=UNEQUIPPED baseARMA={} activeARMA=[]",
-                        armor.formID,
+                        "DAVST ARMOR_STATE armoRuntime={:08X} armoStable=\"{}\" editorID=\"{}\" name=\"{}\" state=UNEQUIPPED baseARMA={} activeARMA=[]",
+                        armor.armor.runtimeFormID,
+                        armor.armor.StableKey(),
                         armor.editorID,
                         armor.name,
-                        FormatFormIDs(armor.baseArmorAddons));
+                        FormatFormIdentities(armor.baseArmorAddons));
+                    LogIdentityRoundTrip("ARMO", armor.armor);
                 }
             }
         }
@@ -291,8 +321,6 @@ namespace DAVSyncTogether
             return std::nullopt;
         }
 
-        // Skyrim biped armor geometry names put an ARMA before the slash and
-        // the owning ARMO after it, e.g. "(FE02380B)[0]/ (FE023803) [100%]".
         return std::pair{ *arma, *armo };
     }
 
@@ -332,16 +360,34 @@ namespace DAVSyncTogether
         return allBase ? ArmorVisualState::Visible : ArmorVisualState::Replaced;
     }
 
-    std::string DAVProbe::FormatFormIDs(const std::vector<RE::FormID>& values)
+    std::string DAVProbe::FormatFormIdentities(const std::vector<FormIdentity>& values)
     {
         std::string result = "[";
         for (std::size_t i = 0; i < values.size(); ++i) {
             if (i != 0) {
                 result += ',';
             }
-            result += fmt::format("{:08X}", values[i]);
+            result += '"';
+            result += values[i].StableKey();
+            result += '"';
         }
         result += ']';
         return result;
+    }
+
+    void DAVProbe::LogIdentityRoundTrip(std::string_view role, const FormIdentity& identity)
+    {
+        auto* resolved = identity.Resolve();
+        const auto resolvedRuntime = resolved ? resolved->GetFormID() : 0;
+        const bool ok = resolved && resolvedRuntime == identity.runtimeFormID;
+
+        SKSE::log::info(
+            "DAVST FORM_ID role={} runtime={:08X} plugin=\"{}\" local={:08X} resolved={:08X} roundtrip={}",
+            role,
+            identity.runtimeFormID,
+            identity.plugin,
+            identity.localFormID,
+            resolvedRuntime,
+            ok ? 1 : 0);
     }
 }
