@@ -4,62 +4,74 @@ DAVSync Together is an SKSE/CommonLibSSE-NG plugin for **Skyrim Special Edition 
 
 ## Scope
 
-DAVSync Together handles only DAV-controlled equipment visuals. It intentionally does not synchronize RaceMenu morphs/overlays/head parts or Immersive Equipment Displays content; those remain the responsibility of MorphSync Together and IEDSync Together.
+DAVSync Together handles only DAV-controlled equipment visuals. RaceMenu appearance remains MorphSync Together's responsibility and IED display objects remain IEDSync Together's responsibility.
 
 ## Current status
 
-**v0.4.3 — face-safe helmet visibility restore**
+**v0.5.0 — DAV-native remote variant application**
 
-The v0.4.2 multiplayer logs confirmed that STRPM transport, proxy resolution, DAV relevance filtering and remote helmet-node application all work in both directions.
+The v0.4.x tests proved that STRPM transport, stable ARMO/ARMA identity and proxy resolution work, but also showed that directly culling face/hair nodes cannot reproduce DAV's biped `overrideHead` behavior reliably. In particular, Elir's hair could remain hidden even though the hair NiAVObject itself was not app-culled.
 
-v0.4.3 tightens the head/hair correction after those logs showed `headFixes=1` on a `VISIBLE` transition. DAVSync must never make the entire proxy face disappear while restoring a helmet.
+v0.5.0 therefore stops manipulating face and hair nodes directly.
 
-### DAV config relevance index
+### Variant inference
 
-At `DataLoaded`, DAVSync scans:
+At `DataLoaded`, DAVSync parses the actual DAV JSON files under:
 
 ```text
 Data/SKSE/Plugins/DynamicArmorVariants/**/*.json
 ```
 
-and indexes source Armor Addons referenced by `replaceByForm` plus source biped slots referenced by `replaceBySlot`.
+It indexes each DAV variant's:
 
-Before a state is sent through STRPM, the worn ARMO must have at least one base ARMA that is actually covered by that DAV configuration. Unrelated technical armors are logged as:
+- `name`
+- `linkTo`
+- `overrideHead`
+- `replaceByForm`
+- `replaceBySlot`
 
-```text
-DAVST STRPM TX_FILTERED ... reason=not-in-dav-config
-```
-
-### Face/hair-safe hidden helmets
-
-Remote application still targets only Skyrim biped nodes of the form:
+When the local probe observes `HIDDEN` or `REPLACED`, DAVSync computes the effective ARMA result for each relevant variant and compares it with the rendered ARMA set. If exactly one variant matches, DAVSync logs:
 
 ```text
-(<ARMA>)[...]/ (<ARMO>) [...]
+DAVST VARIANT_MATCH ... variant="..." candidates=1
 ```
 
-For an ARMO using slot 30 (Head) and/or slot 31 (Hair):
+and sends that variant name through STRPM.
 
-- `HIDDEN` culls the matching armor node;
-- while `HIDDEN`, DAVSync may **uncull** an already-culled face node, but it never culls the face node itself;
-- while `HIDDEN`, the hair node is unculled when the ARMO occupies slot 31;
-- `VISIBLE` restores the armor node and only restores the slot-31 hair cull; face visibility is left to Skyrim/STR;
-- `UNEQUIPPED` clears DAVSync armor-node culling;
-- `REPLACED` remains transport-only until a true replacement variant is validated.
+If the rendered result is ambiguous, the transition is not sent and the log reports `candidates=` so the mapping can be refined without applying the wrong DAV head/slot behavior.
 
-The receive log includes `headFixes=` for head/hair corrections.
+### DAV-native remote application
+
+The receiver resolves the STRPM sender to the correct STR proxy and calls DAV's existing Papyrus API:
+
+```text
+DynamicArmor.ApplyVariant(proxy, variant)
+DynamicArmor.ResetVariant(proxy, armor)
+```
+
+This delegates Armor Addon replacement, 3D refresh and `overrideHead` behavior to Dynamic Armor Variants itself. DAVSync no longer culls the proxy FaceNode or hair head part.
+
+A conservative armor-node cull remains only as a fallback if the DAV Papyrus dispatch itself fails. The fallback never manipulates face or hair nodes.
+
+Relevant receive logs now include:
+
+```text
+variant="..."
+davDispatch=1
+fallbackNodes=0
+```
 
 ## Multiplayer architecture
 
 ```text
-DAV local probe
+local DAV rendered state
+    -> infer DAV variant from DAV JSON config
     -> load-order-safe ARMO/ARMA identity
-    -> DAV config relevance filter
     -> STRPM channel DAVSyncTogether.State.v1
     -> STRPM Sender.connectionID
     -> STRPM ProxyResolver
-    -> remote proxy FormID
-    -> targeted DAV visual apply
+    -> remote proxy Actor
+    -> DynamicArmor.ApplyVariant / ResetVariant
 ```
 
 DAVSync creates **no custom UDP transport**. Messaging and proxy identity are provided exclusively by STRPluginMessagingAPI.
@@ -72,7 +84,7 @@ ARMO and ARMA forms are represented as:
 plugin filename + local FormID
 ```
 
-rather than client-specific runtime FormIDs. Runtime IDs remain diagnostic only and are validated with `TESDataHandler::LookupForm(localFormID, pluginName)`.
+rather than client-specific runtime FormIDs.
 
 ## DAV state model
 
@@ -97,6 +109,7 @@ Build:
 - CMake 3.24+
 - vcpkg
 - CommonLibSSE-NG
+- nlohmann-json
 
 ## Building
 
@@ -110,26 +123,37 @@ The Vortex-ready archive is generated under:
 dist/DAVSyncTogether-<version>.zip
 ```
 
-## Test procedure for v0.4.3
+## Test procedure for v0.5.0
 
-Install the same build on Player1 and Player2 and connect both through Skyrim Together Reborn.
+Install the same build and the same DAV configuration on Player1 and Player2. Connect both players before toggling helmets.
 
-For Kahel and Elir, test a helmet DAV cycle **after both players are connected**:
+For Kahel and Elir:
 
 1. helmet visible;
 2. hide through DAV;
-3. confirm the remote helmet disappears while face and hair remain correct;
+3. verify helmet disappearance and correct face/hair on the remote proxy;
 4. show through DAV;
-5. confirm the helmet returns and the face remains visible;
-6. repeat in the opposite player direction.
+5. verify helmet/head/hair return correctly;
+6. repeat in the opposite direction.
 
-Relevant logs:
+Expected sender log:
 
 ```text
-DAVST CONFIG_INDEX loaded ...
-DAVST STRPM TX ...
-DAVST STRPM TX_FILTERED ...
-DAVST STRPM RX_STATE ... headFixes=... apply=1
+DAVST VARIANT_MATCH ... candidates=1 variant="..."
+DAVST STRPM TX ... state=HIDDEN variant="..." result=ok
+```
+
+Expected receiver log:
+
+```text
+DAVST DAV_API ApplyVariant ... dispatched=1
+DAVST STRPM RX_STATE ... state=HIDDEN variant="..." davDispatch=1 fallbackNodes=0 apply=1
+```
+
+On `VISIBLE`:
+
+```text
+DAVST DAV_API ResetVariant ... dispatched=1
 ```
 
 ## Versioning
