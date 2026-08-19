@@ -39,7 +39,7 @@ namespace DAVSyncTogether
         void HandleReceivedMessageOnGameThread(ReceivedMessage message);
         void UpdateLocalDisplayName();
 
-        static constexpr const char* kChannel = "DAVSyncTogether.State.v1";
+        static constexpr const char* kChannel = "DAVSyncTogether.State.v2";
 
         const STRPM::Interface* _api{ nullptr };
         const STRPM::ProxyResolverInterface* _resolver{ nullptr };
