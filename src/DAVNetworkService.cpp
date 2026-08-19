@@ -1,5 +1,7 @@
 #include "DAVNetworkService.h"
 
+#include "DAVRemoteApplier.h"
+
 namespace DAVSyncTogether
 {
     namespace
@@ -58,7 +60,7 @@ namespace DAVSyncTogether
 
         _resolver = STRPM::LoadProxyResolverFromModule();
         if (!_resolver) {
-            SKSE::log::warn("DAVST STRPM ProxyResolver unavailable; RX can still validate forms but proxy mapping will be unknown");
+            SKSE::log::warn("DAVST STRPM ProxyResolver unavailable; remote application requires proxy mapping");
         }
 
         const auto result = _api->registerChannel(
@@ -84,7 +86,7 @@ namespace DAVSyncTogether
         STRPM::ConnectionID localConnectionID = 0;
         const auto idResult = _api->getLocalConnectionID(std::addressof(localConnectionID));
         SKSE::log::info(
-            "DAVST STRPM ready channel=\"{}\" localConnection={} idResult={} proxyResolver={} apply=0",
+            "DAVST STRPM ready channel=\"{}\" localConnection={} idResult={} proxyResolver={} apply=1 mode=biped-node-cull",
             kChannel,
             localConnectionID,
             STRPM::ResultToString(idResult),
@@ -217,8 +219,13 @@ namespace DAVSyncTogether
         }
 
         const bool valid = resolvedArmor != nullptr && activeValid;
+        RemoteApplyResult applyResult{};
+        if (valid && proxyActor) {
+            applyResult = DAVRemoteApplier::Apply(proxyActor, *message);
+        }
+
         SKSE::log::info(
-            "DAVST STRPM RX_STATE sender=\"{}\" connection={} host={} sequence={} proxyResult={} proxyForm={:08X} proxyActor={} armoStable=\"{}\" state={} armoResolved={:08X} activeStable={} activeResolved={} valid={} apply=0",
+            "DAVST STRPM RX_STATE sender=\"{}\" connection={} host={} sequence={} proxyResult={} proxyForm={:08X} proxyActor={} armoStable=\"{}\" state={} armoResolved={:08X} activeStable={} activeResolved={} valid={} applySupported={} matchedNodes={} changedNodes={} apply={}",
             received.displayName,
             received.connectionID,
             received.isHost ? 1 : 0,
@@ -231,7 +238,11 @@ namespace DAVSyncTogether
             message->armor.runtimeFormID,
             FormatStableIdentities(message->activeArmorAddons),
             FormatRuntimeIDs(message->activeArmorAddons),
-            valid ? 1 : 0);
+            valid ? 1 : 0,
+            applyResult.supported ? 1 : 0,
+            applyResult.matchedNodes,
+            applyResult.changedNodes,
+            (valid && proxyActor && applyResult.supported && applyResult.matchedNodes > 0) ? 1 : 0);
     }
 
     void DAVNetworkService::UpdateLocalDisplayName()
