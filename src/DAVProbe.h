@@ -33,7 +33,8 @@ namespace DAVSyncTogether
         static ArmorVisualState ClassifyVisualState(
             const std::vector<RE::FormID>& baseAddons,
             const std::vector<RE::FormID>& activeAddons) noexcept;
-        static std::string FormatFormIDs(const std::vector<RE::FormID>& values);
+        static std::string FormatFormIdentities(const std::vector<FormIdentity>& values);
+        static void LogIdentityRoundTrip(std::string_view role, const FormIdentity& identity);
 
         std::jthread _thread;
         std::atomic_bool _running{ false };
