@@ -113,7 +113,7 @@ namespace DAVSyncTogether
         }
     }
 
-    std::string EncodeArmorState(const WornArmorState& armor, bool unequipped)
+    std::string EncodeArmorState(const WornArmorState& armor, std::string_view variant, bool unequipped)
     {
         const auto state = unequipped ?
             NetworkArmorState::Unequipped :
@@ -132,9 +132,10 @@ namespace DAVSyncTogether
         }
 
         return fmt::format(
-            "DAVSTATE|armo={}|state={}|active={}",
+            "DAVSTATE|armo={}|state={}|variant={}|active={}",
             EncodeIdentity(armor.armor),
             NetworkArmorStateName(state),
+            HexEncode(variant),
             active);
     }
 
@@ -146,20 +147,23 @@ namespace DAVSyncTogether
 
         const auto armorToken = ReadField(payload, "armo");
         const auto stateToken = ReadField(payload, "state");
+        const auto variantToken = ReadField(payload, "variant");
         const auto activeToken = ReadField(payload, "active");
-        if (!armorToken || !stateToken || !activeToken) {
+        if (!armorToken || !stateToken || !variantToken || !activeToken) {
             return std::nullopt;
         }
 
         const auto armor = DecodeIdentity(*armorToken);
         const auto state = ParseState(*stateToken);
-        if (!armor || !state) {
+        const auto variant = HexDecode(*variantToken);
+        if (!armor || !state || !variant) {
             return std::nullopt;
         }
 
         RemoteArmorState result;
         result.armor = *armor;
         result.state = *state;
+        result.variant = *variant;
 
         std::string_view active = *activeToken;
         while (!active.empty()) {
