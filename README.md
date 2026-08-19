@@ -17,29 +17,41 @@ Those concerns belong to MorphSync Together and IEDSync Together respectively.
 
 ## Current status
 
-**v0.3.0 — STRPM transport validation**
+**v0.4.0 — remote DAV visibility application**
 
-DAVSync now uses **STRPluginMessagingAPI (STRPM)** for multiplayer messaging and remote proxy identity. DAVSync does not create its own UDP socket, port, discovery protocol, or network configuration.
+The v0.3.0 STRPM transport/proxy-resolution test succeeded: state messages arrived on the other client, load-order-safe ARMO/ARMA identities resolved correctly, and STRPM mapped the sender ConnectionID to the correct remote proxy actor.
 
-The v0.3.0 path is:
+v0.4.0 enables the first actual visual application on that STR proxy.
+
+The path is:
 
 ```text
 DAV local probe
     -> load-order-safe ARMO/ARMA identity
     -> STRPM channel DAVSyncTogether.State.v1
-    -> remote STRPM Sender.connectionID
+    -> STRPM Sender.connectionID
     -> STRPM ProxyResolver
     -> remote proxy FormID
+    -> matching Skyrim biped ARMA/ARMO scene node
+    -> CullNode(true/false)
 ```
 
-For this milestone, received states are **not applied** to the remote proxy yet. The receiver only validates that:
+DAVSync still creates **no custom UDP socket, port, discovery protocol or network configuration**. Multiplayer messaging and proxy identity come exclusively from STRPluginMessagingAPI.
 
-- the STRPM message arrived
-- the sender ConnectionID is available
-- STRPM resolves that ConnectionID to the corresponding proxy FormID
-- the transmitted ARMO and active ARMA identities resolve correctly against the receiver's own load order
+### Supported remote states in v0.4.0
 
-The log explicitly reports `apply=0`.
+- `HIDDEN` — find only biped scene nodes whose parsed owning ARMO matches the received ARMO, then cull that node and its geometry.
+- `VISIBLE` — un-cull the matching biped node.
+- `UNEQUIPPED` — clear any DAVSync culling that might remain for that ARMO; normal STR equipment replication remains responsible for the actual unequip.
+- `REPLACED` — transported and resolved, but **not applied yet**. A true replacement variant needs a dedicated validation test before implementation.
+
+The biped matcher only accepts Skyrim armor geometry names of the form:
+
+```text
+(<ARMA>)[...]/ (<ARMO>) [...]
+```
+
+This means DAVSync does not target unrelated scene nodes such as `HelmetGO`, IED custom nodes, RaceMenu overlays, SMP nodes, or other arbitrary NiNodes.
 
 ### DAV-only traffic filtering
 
@@ -80,7 +92,7 @@ The effective DAV visual state is classified as:
 
 The original Dynamic Armor Variants exposes Papyrus functions such as `GetVariants`, `GetEquippedArmorsWithVariants`, `ApplyVariant`, `ResetVariant` and `ResetAllVariants`, but does not expose a native getter for the currently active variant.
 
-DAVSync Together therefore observes DAV's **effective rendered Armor Addon result** rather than reading private DAV state. This keeps the current implementation compatible with the original `DynamicArmorVariants.dll`.
+DAVSync therefore observes and transmits DAV's **effective rendered Armor Addon result**. For the first remote-application milestone, hidden/shown state is reproduced at the corresponding biped ARMO node. Replacement variants remain deferred until their exact sender-side identity can be validated.
 
 Dynamic Armor Variants Extended (DAVE) may be supported later as an optional richer integration, but it is not required.
 
@@ -88,10 +100,11 @@ Dynamic Armor Variants Extended (DAVE) may be supported later as an optional ric
 
 1. **DAV local-state capture** — implemented.
 2. **Stable equipment identity** — implemented.
-3. **STRPM messaging** — implemented in v0.3.0.
-4. **STRPM proxy resolution** — implemented in v0.3.0, diagnostic only.
-5. **DAV state application** — not implemented yet.
-6. **Refresh handling** — not implemented yet.
+3. **STRPM messaging** — implemented.
+4. **STRPM proxy resolution** — implemented.
+5. **Remote HIDDEN/VISIBLE application** — implemented in v0.4.0.
+6. **REPLACED application** — pending dedicated variant test.
+7. **Refresh/rebuild resilience** — pending if STR rebuilds prove able to undo the applied cull state.
 
 ## Requirements
 
@@ -132,46 +145,36 @@ with the DLL packaged as:
 SKSE/Plugins/DAVSyncTogether.dll
 ```
 
-## Test procedure for v0.3.0
+## Test procedure for v0.4.0
 
-Install the same DAVSync build and STRPluginMessagingAPI on Player1 and Player2, then connect both clients through Skyrim Together Reborn.
+Install the same DAVSync build and STRPluginMessagingAPI on Player1 and Player2, then connect both players through Skyrim Together Reborn.
 
-On Player1, with the Iron Plate Helmet equipped:
+With Kahel's Iron Plate Helmet equipped:
 
-1. keep the helmet visible
-2. hide it through DAV
-3. wait about 2 seconds
-4. show it again through DAV
-5. wait about 2 seconds
+1. confirm the helmet is visible on Kahel and on Kahel's proxy from Player2's view
+2. hide the helmet through DAV on Kahel
+3. wait about 2 seconds and verify whether it disappears from Kahel's proxy on Player2
+4. show the helmet again through DAV
+5. verify whether it reappears on the proxy
+6. repeat the hide/show cycle once more to check stability
 
-Optional second sequence to validate `UNEQUIPPED` transport:
-
-1. hide the helmet through DAV
-2. while it is still hidden, unequip it
-
-Player1 should log lines such as:
+The receiver should log lines similar to:
 
 ```text
-DAVST STRPM ready channel="DAVSyncTogether.State.v1" ...
-DAVST STRPM TX armoStable="ccbgssse052-ba_iron.esl|00000803" state=HIDDEN ... result=ok
-DAVST STRPM TX armoStable="ccbgssse052-ba_iron.esl|00000803" state=VISIBLE ... result=ok
+DAVST STRPM RX_STATE sender="Kahel" ... state=HIDDEN ... applySupported=1 matchedNodes=1 changedNodes=1 apply=1
+DAVST STRPM RX_STATE sender="Kahel" ... state=VISIBLE ... applySupported=1 matchedNodes=1 changedNodes=1 apply=1
 ```
 
-Player2 should log a corresponding receive validation similar to:
+Interpretation:
 
-```text
-DAVST STRPM RX_STATE sender="Kahel" connection=... proxyResult=ok proxyForm=... proxyActor=1 armoStable="ccbgssse052-ba_iron.esl|00000803" state=HIDDEN armoResolved=... valid=1 apply=0
-```
+- `valid=1` — received ARMO/ARMA identities resolved locally
+- `proxyResult=ok` and `proxyActor=1` — STRPM found the correct proxy
+- `applySupported=1` — the received state is implemented by the current applier
+- `matchedNodes>0` — the matching biped ARMO node exists on the proxy
+- `changedNodes>0` — its cull state actually changed during this receive
+- `apply=1` — DAVSync successfully targeted at least one matching node
 
-The v0.3.0 transport test is successful when:
-
-- Player1 reports `result=ok` for TX
-- Player2 receives the same DAV state
-- `proxyResult=ok`
-- `proxyForm` is non-zero
-- `proxyActor=1`
-- the ARMO/ARMA forms resolve locally with `valid=1`
-- `apply=0` remains present, confirming DAVSync did not modify the proxy yet
+If `matchedNodes=0`, the next debugging step is to inspect the proxy's biped scene-node naming rather than changing STRPM or the form-identity protocol.
 
 ## Versioning
 
