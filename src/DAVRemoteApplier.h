@@ -9,6 +9,7 @@ namespace DAVSyncTogether
         bool supported{ false };
         std::size_t matchedNodes{ 0 };
         std::size_t changedNodes{ 0 };
+        std::size_t headFixes{ 0 };
     };
 
     class DAVRemoteApplier
@@ -21,6 +22,11 @@ namespace DAVSyncTogether
             RE::NiAVObject* object,
             RE::FormID armorFormID,
             bool cull,
+            RemoteApplyResult& result);
+        static void ApplyHeadHairVisibility(
+            RE::Actor* actor,
+            RE::TESObjectARMO* armor,
+            bool hidden,
             RemoteApplyResult& result);
 
         static std::optional<std::pair<RE::FormID, RE::FormID>> ParseArmorNode(std::string_view name);
