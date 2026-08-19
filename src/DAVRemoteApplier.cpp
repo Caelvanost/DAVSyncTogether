@@ -26,7 +26,61 @@ namespace DAVSyncTogether
         }
 
         VisitAndApply(proxyActor->Get3D(), state.armor.runtimeFormID, cull, result);
+
+        if (auto* form = RE::TESForm::LookupByID(state.armor.runtimeFormID)) {
+            if (auto* armor = form->As<RE::TESObjectARMO>()) {
+                ApplyHeadHairVisibility(
+                    proxyActor,
+                    armor,
+                    state.state == NetworkArmorState::Hidden,
+                    result);
+            }
+        }
+
         return result;
+    }
+
+    void DAVRemoteApplier::ApplyHeadHairVisibility(
+        RE::Actor* actor,
+        RE::TESObjectARMO* armor,
+        bool hidden,
+        RemoteApplyResult& result)
+    {
+        if (!actor || !armor) {
+            return;
+        }
+
+        const auto headSlot = static_cast<RE::BGSBipedObjectForm::BipedObjectSlot>(1u << 0);
+        const auto hairSlot = static_cast<RE::BGSBipedObjectForm::BipedObjectSlot>(1u << 1);
+        const bool usesHead = armor->HasPartOf(headSlot);
+        const bool usesHair = armor->HasPartOf(hairSlot);
+
+        if (!usesHead && !usesHair) {
+            return;
+        }
+
+        // DAV hidden-helmet variants normally use overrideHead=showAll. The proxy still
+        // has the original ARMO equipped, so Skyrim continues to hide face/hair unless
+        // DAVSync restores those head parts explicitly.
+        if (usesHead) {
+            if (auto* face = actor->GetFaceNodeSkinned()) {
+                const bool wantCull = !hidden;
+                if (face->GetAppCulled() != wantCull) {
+                    face->CullNode(wantCull);
+                    ++result.headFixes;
+                }
+            }
+        }
+
+        if (usesHair) {
+            if (auto* hair = actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::Hair)) {
+                const bool wantCull = !hidden;
+                if (hair->GetAppCulled() != wantCull) {
+                    hair->CullNode(wantCull);
+                    ++result.headFixes;
+                }
+            }
+        }
     }
 
     void DAVRemoteApplier::VisitAndApply(
