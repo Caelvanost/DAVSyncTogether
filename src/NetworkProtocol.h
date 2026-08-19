@@ -14,7 +14,6 @@ namespace DAVSyncTogether
 
     struct RemoteArmorState
     {
-        std::string sender;
         FormIdentity armor;
         NetworkArmorState state{ NetworkArmorState::Visible };
         std::vector<FormIdentity> activeArmorAddons;
@@ -25,7 +24,7 @@ namespace DAVSyncTogether
         bool unequipped = false);
 
     [[nodiscard]] std::optional<RemoteArmorState> DecodeArmorState(
-        std::string_view packet);
+        std::string_view payload);
 
     [[nodiscard]] std::string_view NetworkArmorStateName(
         NetworkArmorState state) noexcept;
