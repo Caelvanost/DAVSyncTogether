@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include "DAVNetworkService.h"
 #include "DAVProbe.h"
 
 namespace
@@ -26,6 +27,14 @@ namespace
         spdlog::flush_on(spdlog::level::trace);
     }
 
+    void EnsureSTRPM()
+    {
+        auto& network = DAVSyncTogether::DAVNetworkService::GetSingleton();
+        if (!network.IsRunning()) {
+            network.Start();
+        }
+    }
+
     void OnSKSEMessage(SKSE::MessagingInterface::Message* message)
     {
         if (!message) {
@@ -36,10 +45,12 @@ namespace
 
         switch (message->type) {
         case SKSE::MessagingInterface::kPostPostLoad:
-            SKSE::log::info("PostPostLoad: DAVSync Together initialized; RaceMenu/SKEE integration intentionally disabled");
+            SKSE::log::info("PostPostLoad: DAVSync Together initialized; STRPM messaging requested");
+            EnsureSTRPM();
             break;
 
         case SKSE::MessagingInterface::kDataLoaded:
+            EnsureSTRPM();
             SKSE::log::info("DataLoaded: starting Dynamic Armor Variants local-state monitor");
             probe.Start();
             break;
@@ -49,6 +60,7 @@ namespace
             break;
 
         case SKSE::MessagingInterface::kPostLoadGame:
+            EnsureSTRPM();
             probe.Reset();
             probe.QueueProbe("PostLoadGame");
             break;
