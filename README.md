@@ -8,14 +8,19 @@ DAVSync Together handles only DAV-controlled equipment visuals. It intentionally
 
 ## Current status
 
-**v0.4.1 — DAV relevance filtering and head/hair-safe hidden helmets**
+**v0.4.2 — build fix for DAV filtering/head-hair safety**
 
-v0.4.0 validated real remote `HIDDEN` / `VISIBLE` application through STRPM, but exposed two side effects:
+v0.4.1 added two protections after the first remote-visibility tests:
 
-- unrelated technical ARMO could be mistaken for DAV state changes;
-- hiding a helmet mesh on the proxy did not restore the face/hair that the still-equipped head/hair slots continued to suppress.
+- DAV config relevance filtering to avoid unrelated technical ARMO traffic;
+- explicit face/hair restoration for hidden helmets on STR proxies.
 
-v0.4.1 addresses both problems.
+v0.4.2 is a compile-only correction for that work:
+
+- fixes the C++ raw-string delimiters used by the DAV JSON regex scanner;
+- uses the CommonLibSSE-NG enum `RE::BGSHeadPart::HeadPartType::kHair` for hair-node lookup.
+
+No network protocol or synchronization behavior changes from the intended v0.4.1 design.
 
 ### DAV config relevance index
 
@@ -50,7 +55,7 @@ For an ARMO using slot 30 (Head) and/or slot 31 (Hair):
 - `UNEQUIPPED` clears DAVSync culling;
 - `REPLACED` remains transport-only until a true replacement variant is validated.
 
-The receive log now includes `headFixes=` for this correction.
+The receive log includes `headFixes=` for this correction.
 
 ## Multiplayer architecture
 
@@ -113,7 +118,7 @@ The Vortex-ready archive is generated under:
 dist/DAVSyncTogether-<version>.zip
 ```
 
-## Test procedure for v0.4.1
+## Test procedure for v0.4.2
 
 Install the same build on Player1 and Player2 and connect both through Skyrim Together Reborn.
 
