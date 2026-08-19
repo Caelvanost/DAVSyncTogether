@@ -11,9 +11,7 @@ namespace DAVSyncTogether
         {
             std::string result = "[";
             for (std::size_t i = 0; i < values.size(); ++i) {
-                if (i != 0) {
-                    result += ',';
-                }
+                if (i != 0) result += ',';
                 result += '"';
                 result += values[i].StableKey();
                 result += '"';
@@ -26,9 +24,7 @@ namespace DAVSyncTogether
         {
             std::string result = "[";
             for (std::size_t i = 0; i < values.size(); ++i) {
-                if (i != 0) {
-                    result += ',';
-                }
+                if (i != 0) result += ',';
                 result += fmt::format("{:08X}", values[i].runtimeFormID);
             }
             result += ']';
@@ -49,9 +45,7 @@ namespace DAVSyncTogether
 
     bool DAVNetworkService::Start()
     {
-        if (_running.load()) {
-            return true;
-        }
+        if (_running.load()) return true;
 
         _api = STRPM::LoadFromModule();
         if (!_api) {
@@ -64,17 +58,9 @@ namespace DAVSyncTogether
             SKSE::log::warn("DAVST STRPM ProxyResolver unavailable; remote application requires proxy mapping");
         }
 
-        const auto result = _api->registerChannel(
-            kChannel,
-            &DAVNetworkService::OnMessage,
-            this,
-            std::addressof(_listener));
-
+        const auto result = _api->registerChannel(kChannel, &DAVNetworkService::OnMessage, this, std::addressof(_listener));
         if (result != STRPM::Result::kOk) {
-            SKSE::log::error(
-                "DAVST STRPM registerChannel failed channel=\"{}\" result={}",
-                kChannel,
-                STRPM::ResultToString(result));
+            SKSE::log::error("DAVST STRPM registerChannel failed channel=\"{}\" result={}", kChannel, STRPM::ResultToString(result));
             _api = nullptr;
             _resolver = nullptr;
             _listener = {};
@@ -87,7 +73,7 @@ namespace DAVSyncTogether
         STRPM::ConnectionID localConnectionID = 0;
         const auto idResult = _api->getLocalConnectionID(std::addressof(localConnectionID));
         SKSE::log::info(
-            "DAVST STRPM ready channel=\"{}\" localConnection={} idResult={} proxyResolver={} apply=1 mode=head-safe-biped-node-cull",
+            "DAVST STRPM ready channel=\"{}\" localConnection={} idResult={} proxyResolver={} apply=1 mode=dav-papyrus",
             kChannel,
             localConnectionID,
             STRPM::ResultToString(idResult),
@@ -97,29 +83,21 @@ namespace DAVSyncTogether
 
     void DAVNetworkService::Stop()
     {
-        if (!_running.exchange(false)) {
-            return;
-        }
-
+        if (!_running.exchange(false)) return;
         if (_api && _listener.value != 0) {
             const auto result = _api->unregisterChannel(_listener);
             if (result != STRPM::Result::kOk) {
-                SKSE::log::warn(
-                    "DAVST STRPM unregisterChannel failed result={}",
-                    STRPM::ResultToString(result));
+                SKSE::log::warn("DAVST STRPM unregisterChannel failed result={}", STRPM::ResultToString(result));
             }
         }
-
         _listener = {};
         _resolver = nullptr;
         _api = nullptr;
     }
 
-    void DAVNetworkService::SendArmorState(const WornArmorState& armor, bool unequipped)
+    void DAVNetworkService::SendArmorState(const WornArmorState& armor, std::string_view variant, bool unequipped)
     {
-        if (!_running.load() || !_api || !armor.armor.IsStable()) {
-            return;
-        }
+        if (!_running.load() || !_api || !armor.armor.IsStable()) return;
 
         if (!DAVConfigIndex::GetSingleton().IsArmorRelevant(armor)) {
             SKSE::log::info(
@@ -130,41 +108,28 @@ namespace DAVSyncTogether
         }
 
         UpdateLocalDisplayName();
-        const auto payload = EncodeArmorState(armor, unequipped);
+        const auto payload = EncodeArmorState(armor, variant, unequipped);
 
         STRPM::Target target{};
         target.kind = STRPM::TargetKind::kAllPlayers;
+        constexpr std::uint32_t flags = STRPM::kMessageReliable | STRPM::kMessageOrdered;
 
-        constexpr std::uint32_t flags =
-            STRPM::kMessageReliable |
-            STRPM::kMessageOrdered;
-
-        const auto result = _api->send(
-            kChannel,
-            target,
-            payload.data(),
-            payload.size(),
-            flags);
-
+        const auto result = _api->send(kChannel, target, payload.data(), payload.size(), flags);
         SKSE::log::info(
-            "DAVST STRPM TX armoStable=\"{}\" state={} bytes={} result={}",
+            "DAVST STRPM TX armoStable=\"{}\" state={} variant=\"{}\" bytes={} result={}",
             armor.armor.StableKey(),
             unequipped ? "UNEQUIPPED" : ArmorVisualStateName(armor.visualState),
+            variant,
             payload.size(),
             STRPM::ResultToString(result));
     }
 
     void STRPM_CALL DAVNetworkService::OnMessage(const STRPM::Message* message, void* userData)
     {
-        if (!message || !userData || !message->data || message->size == 0) {
-            return;
-        }
-
+        if (!message || !userData || !message->data || message->size == 0) return;
         auto* service = static_cast<DAVNetworkService*>(userData);
         ReceivedMessage received;
-        received.payload.assign(
-            static_cast<const char*>(message->data),
-            message->size);
+        received.payload.assign(static_cast<const char*>(message->data), message->size);
         received.connectionID = message->sender.connectionID;
         received.displayName = message->sender.displayName ? message->sender.displayName : "<unknown>";
         received.isHost = message->sender.isHost;
@@ -179,7 +144,6 @@ namespace DAVSyncTogether
             SKSE::log::warn("DAVST STRPM RX dropped: SKSE task interface unavailable");
             return;
         }
-
         tasks->AddTask([this, message = std::move(message)]() mutable {
             HandleReceivedMessageOnGameThread(std::move(message));
         });
@@ -189,18 +153,13 @@ namespace DAVSyncTogether
     {
         auto message = DecodeArmorState(received.payload);
         if (!message) {
-            SKSE::log::warn(
-                "DAVST STRPM RX malformed payload connection={} sequence={}",
-                received.connectionID,
-                received.sequence);
+            SKSE::log::warn("DAVST STRPM RX malformed payload connection={} sequence={}", received.connectionID, received.sequence);
             return;
         }
 
         auto* resolvedArmorForm = message->armor.Resolve();
         auto* resolvedArmor = resolvedArmorForm ? resolvedArmorForm->As<RE::TESObjectARMO>() : nullptr;
-        if (resolvedArmor) {
-            message->armor.runtimeFormID = resolvedArmor->GetFormID();
-        }
+        if (resolvedArmor) message->armor.runtimeFormID = resolvedArmor->GetFormID();
 
         bool activeValid = true;
         for (auto& identity : message->activeArmorAddons) {
@@ -209,32 +168,26 @@ namespace DAVSyncTogether
             if (!addon) {
                 activeValid = false;
                 identity.runtimeFormID = 0;
-                continue;
+            } else {
+                identity.runtimeFormID = addon->GetFormID();
             }
-            identity.runtimeFormID = addon->GetFormID();
         }
 
         STRPM::ProxyFormID proxyFormID = STRPM::kInvalidProxyFormID;
         STRPM::Result proxyResult = STRPM::Result::kNotAvailable;
-        if (_resolver) {
-            proxyResult = _resolver->resolve(received.connectionID, std::addressof(proxyFormID));
-        }
+        if (_resolver) proxyResult = _resolver->resolve(received.connectionID, std::addressof(proxyFormID));
 
         RE::Actor* proxyActor = nullptr;
         if (proxyResult == STRPM::Result::kOk && proxyFormID != STRPM::kInvalidProxyFormID) {
-            if (auto* form = RE::TESForm::LookupByID(proxyFormID)) {
-                proxyActor = form->As<RE::Actor>();
-            }
+            if (auto* form = RE::TESForm::LookupByID(proxyFormID)) proxyActor = form->As<RE::Actor>();
         }
 
         const bool valid = resolvedArmor != nullptr && activeValid;
         RemoteApplyResult applyResult{};
-        if (valid && proxyActor) {
-            applyResult = DAVRemoteApplier::Apply(proxyActor, *message);
-        }
+        if (valid && proxyActor) applyResult = DAVRemoteApplier::Apply(proxyActor, *message);
 
         SKSE::log::info(
-            "DAVST STRPM RX_STATE sender=\"{}\" connection={} host={} sequence={} proxyResult={} proxyForm={:08X} proxyActor={} armoStable=\"{}\" state={} armoResolved={:08X} activeStable={} activeResolved={} valid={} applySupported={} matchedNodes={} changedNodes={} headFixes={} apply={}",
+            "DAVST STRPM RX_STATE sender=\"{}\" connection={} host={} sequence={} proxyResult={} proxyForm={:08X} proxyActor={} armoStable=\"{}\" state={} variant=\"{}\" armoResolved={:08X} activeStable={} activeResolved={} valid={} applySupported={} davDispatch={} fallbackNodes={} apply={}",
             received.displayName,
             received.connectionID,
             received.isHost ? 1 : 0,
@@ -244,38 +197,27 @@ namespace DAVSyncTogether
             proxyActor ? 1 : 0,
             message->armor.StableKey(),
             NetworkArmorStateName(message->state),
+            message->variant,
             message->armor.runtimeFormID,
             FormatStableIdentities(message->activeArmorAddons),
             FormatRuntimeIDs(message->activeArmorAddons),
             valid ? 1 : 0,
             applyResult.supported ? 1 : 0,
-            applyResult.matchedNodes,
-            applyResult.changedNodes,
-            applyResult.headFixes,
-            (valid && proxyActor && applyResult.supported && applyResult.matchedNodes > 0) ? 1 : 0);
+            applyResult.dispatched ? 1 : 0,
+            applyResult.fallbackNodes,
+            (valid && proxyActor && applyResult.supported && (applyResult.dispatched || applyResult.fallbackNodes > 0)) ? 1 : 0);
     }
 
     void DAVNetworkService::UpdateLocalDisplayName()
     {
-        if (!_api) {
-            return;
-        }
-
+        if (!_api) return;
         auto* player = RE::PlayerCharacter::GetSingleton();
-        if (!player) {
-            return;
-        }
-
+        if (!player) return;
         const char* name = player->GetName();
-        if (!name || !*name || std::string_view(name) == "Prisoner") {
-            return;
-        }
-
+        if (!name || !*name || std::string_view(name) == "Prisoner") return;
         const auto result = _api->setLocalDisplayName(name);
         if (result != STRPM::Result::kOk) {
-            SKSE::log::trace(
-                "DAVST STRPM setLocalDisplayName result={}",
-                STRPM::ResultToString(result));
+            SKSE::log::trace("DAVST STRPM setLocalDisplayName result={}", STRPM::ResultToString(result));
         }
     }
 }
