@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include "DAVConfigIndex.h"
 #include "DAVNetworkService.h"
 #include "DAVProbe.h"
 
@@ -51,6 +52,7 @@ namespace
 
         case SKSE::MessagingInterface::kDataLoaded:
             EnsureSTRPM();
+            DAVSyncTogether::DAVConfigIndex::GetSingleton().Load();
             SKSE::log::info("DataLoaded: starting Dynamic Armor Variants local-state monitor");
             probe.Start();
             break;
