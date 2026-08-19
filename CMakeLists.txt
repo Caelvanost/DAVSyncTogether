@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     DAVSyncTogether
-    VERSION 0.4.3
+    VERSION 0.5.0
     LANGUAGES CXX
 )
 
@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(CommonLibSSE CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_commonlibsse_plugin(${PROJECT_NAME}
     SOURCES
@@ -37,6 +38,8 @@ target_include_directories(${PROJECT_NAME}
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 
 target_precompile_headers(${PROJECT_NAME} PRIVATE src/PCH.h)
 
