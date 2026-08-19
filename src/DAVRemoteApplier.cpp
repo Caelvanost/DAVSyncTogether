@@ -1,0 +1,116 @@
+#include "DAVRemoteApplier.h"
+
+namespace DAVSyncTogether
+{
+    RemoteApplyResult DAVRemoteApplier::Apply(RE::Actor* proxyActor, const RemoteArmorState& state)
+    {
+        RemoteApplyResult result;
+        if (!proxyActor || !proxyActor->Get3D() || state.armor.runtimeFormID == 0) {
+            return result;
+        }
+
+        bool cull = false;
+        switch (state.state) {
+        case NetworkArmorState::Hidden:
+            result.supported = true;
+            cull = true;
+            break;
+        case NetworkArmorState::Visible:
+        case NetworkArmorState::Unequipped:
+            result.supported = true;
+            cull = false;
+            break;
+        case NetworkArmorState::Replaced:
+        default:
+            return result;
+        }
+
+        VisitAndApply(proxyActor->Get3D(), state.armor.runtimeFormID, cull, result);
+        return result;
+    }
+
+    void DAVRemoteApplier::VisitAndApply(
+        RE::NiAVObject* object,
+        RE::FormID armorFormID,
+        bool cull,
+        RemoteApplyResult& result)
+    {
+        if (!object) {
+            return;
+        }
+
+        const char* rawName = object->name.c_str();
+        if (rawName && *rawName) {
+            if (const auto parsed = ParseArmorNode(rawName)) {
+                const auto [arma, armo] = *parsed;
+                (void)arma;
+                if (armo == armorFormID) {
+                    ++result.matchedNodes;
+                    if (object->GetAppCulled() != cull) {
+                        object->CullNode(cull);
+                        ++result.changedNodes;
+                    }
+                }
+            }
+        }
+
+        if (auto* node = object->AsNode()) {
+            for (auto& child : node->GetChildren()) {
+                if (child) {
+                    VisitAndApply(child.get(), armorFormID, cull, result);
+                }
+            }
+        }
+    }
+
+    std::optional<std::pair<RE::FormID, RE::FormID>> DAVRemoteApplier::ParseArmorNode(std::string_view name)
+    {
+        const auto firstOpen = name.find('(');
+        if (firstOpen == std::string_view::npos) {
+            return std::nullopt;
+        }
+        const auto firstClose = name.find(')', firstOpen + 1);
+        if (firstClose == std::string_view::npos) {
+            return std::nullopt;
+        }
+
+        const auto slash = name.find('/', firstClose + 1);
+        if (slash == std::string_view::npos) {
+            return std::nullopt;
+        }
+        const auto secondOpen = name.find('(', slash + 1);
+        if (secondOpen == std::string_view::npos) {
+            return std::nullopt;
+        }
+        const auto secondClose = name.find(')', secondOpen + 1);
+        if (secondClose == std::string_view::npos) {
+            return std::nullopt;
+        }
+
+        const auto arma = ParseFormID(name.substr(firstOpen + 1, firstClose - firstOpen - 1));
+        const auto armo = ParseFormID(name.substr(secondOpen + 1, secondClose - secondOpen - 1));
+        if (!arma || !armo) {
+            return std::nullopt;
+        }
+
+        return std::pair{ *arma, *armo };
+    }
+
+    std::optional<RE::FormID> DAVRemoteApplier::ParseFormID(std::string_view text)
+    {
+        if (text.empty() || text.size() > 8) {
+            return std::nullopt;
+        }
+
+        try {
+            std::size_t consumed = 0;
+            const auto value = std::stoul(std::string(text), std::addressof(consumed), 16);
+            if (consumed != text.size() || value > std::numeric_limits<std::uint32_t>::max()) {
+                return std::nullopt;
+            }
+            return static_cast<RE::FormID>(value);
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+}
