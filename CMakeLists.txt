@@ -2,14 +2,15 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     DAVSyncTogether
-    VERSION 0.2.2
+    VERSION 0.3.0
     LANGUAGES CXX
 )
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(CommonLibSSE REQUIRED)
+find_package(CommonLibSSE CONFIG REQUIRED)
 
 add_commonlibsse_plugin(${PROJECT_NAME}
     SOURCES
@@ -21,14 +22,28 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         src/DAVStateSnapshot.h
         src/FormIdentity.cpp
         src/FormIdentity.h
+        src/NetworkProtocol.cpp
+        src/NetworkProtocol.h
+        src/DAVNetworkService.cpp
+        src/DAVNetworkService.h
+        src/STRPMApi.cpp
+)
+
+target_include_directories(${PROJECT_NAME}
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_precompile_headers(${PROJECT_NAME} PRIVATE src/PCH.h)
 
-target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /permissive- /W4 /utf-8)
+endif()
 
 target_compile_definitions(${PROJECT_NAME}
     PRIVATE
+        _UNICODE
+        UNICODE
         WIN32_LEAN_AND_MEAN
         NOMINMAX
         DAVST_VERSION_STRING="${PROJECT_VERSION}"
