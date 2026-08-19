@@ -15,6 +15,8 @@ namespace DAVSyncTogether
         void QueueProbe(std::string reason = "tick");
 
     private:
+        using ActiveAddonMap = std::unordered_map<RE::FormID, std::vector<RE::FormID>>;
+
         DAVProbe() = default;
         ~DAVProbe();
         DAVProbe(const DAVProbe&) = delete;
@@ -25,8 +27,13 @@ namespace DAVSyncTogether
         void LogSnapshotDiff(const DAVStateSnapshot& current, std::string_view reason);
 
         static bool IsDAVLoaded();
-        static void VisitScene(RE::NiAVObject* object, std::vector<std::string>& names);
-        static std::uint64_t HashStrings(const std::vector<std::string>& values) noexcept;
+        static void VisitArmorNodes(RE::NiAVObject* object, ActiveAddonMap& activeAddons);
+        static std::optional<std::pair<RE::FormID, RE::FormID>> ParseArmorNode(std::string_view name);
+        static std::optional<RE::FormID> ParseFormID(std::string_view text);
+        static ArmorVisualState ClassifyVisualState(
+            const std::vector<RE::FormID>& baseAddons,
+            const std::vector<RE::FormID>& activeAddons) noexcept;
+        static std::string FormatFormIDs(const std::vector<RE::FormID>& values);
 
         std::jthread _thread;
         std::atomic_bool _running{ false };
