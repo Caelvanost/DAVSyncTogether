@@ -36,8 +36,12 @@ namespace DAVSyncTogether
             return;
         }
 
-        const std::regex formKeyPattern(R"("([\w\-. ]+\.es[lmp]\|(?:0[xX])?[0-9A-Fa-f]{1,8})"\s*:)");
-        const std::regex slotKeyPattern(R"("(3[0-9]|4[0-9]|5[0-9]|6[0-1])"\s*:)");
+        const std::regex formKeyPattern(
+            R"DAV("([\w\-. ]+\.es[lmp]\|(?:0[xX])?[0-9A-Fa-f]{1,8})"\s*:)DAV",
+            std::regex::ECMAScript | std::regex::icase);
+        const std::regex slotKeyPattern(
+            R"DAV("(3[0-9]|4[0-9]|5[0-9]|6[0-1])"\s*:)DAV",
+            std::regex::ECMAScript);
 
         std::size_t files = 0;
         for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
