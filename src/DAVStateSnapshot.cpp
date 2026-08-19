@@ -21,6 +21,13 @@ namespace DAVSyncTogether
         }
     }
 
+    bool WornArmorState::VisualEquivalent(const WornArmorState& rhs) const noexcept
+    {
+        return formID == rhs.formID &&
+               visualState == rhs.visualState &&
+               activeArmorAddons == rhs.activeArmorAddons;
+    }
+
     std::uint64_t DAVStateSnapshot::StateHash() const noexcept
     {
         std::uint64_t hash = kFnvOffset;
@@ -28,10 +35,11 @@ namespace DAVSyncTogether
 
         for (const auto& armor : wornArmors) {
             FeedU32(hash, armor.formID);
-        }
-
-        for (std::uint32_t shift = 0; shift < 64; shift += 8) {
-            FeedByte(hash, static_cast<std::uint8_t>((sceneHash >> shift) & 0xFF));
+            FeedByte(hash, static_cast<std::uint8_t>(armor.visualState));
+            for (const auto addon : armor.activeArmorAddons) {
+                FeedU32(hash, addon);
+            }
+            FeedByte(hash, 0xFF);
         }
 
         return hash;
@@ -40,11 +48,23 @@ namespace DAVSyncTogether
     std::string DAVStateSnapshot::Summary() const
     {
         return fmt::format(
-            "player={} davLoaded={} wornArmors={} sceneNodes={} sceneHash={:016X}",
+            "player={} davLoaded={} wornArmors={}",
             playerName.empty() ? "<unknown>" : playerName,
             davLoaded ? 1 : 0,
-            wornArmors.size(),
-            sceneNodes.size(),
-            sceneHash);
+            wornArmors.size());
+    }
+
+    std::string_view ArmorVisualStateName(ArmorVisualState state) noexcept
+    {
+        switch (state) {
+        case ArmorVisualState::Visible:
+            return "VISIBLE";
+        case ArmorVisualState::Hidden:
+            return "HIDDEN";
+        case ArmorVisualState::Replaced:
+            return "REPLACED";
+        default:
+            return "UNKNOWN";
+        }
     }
 }
