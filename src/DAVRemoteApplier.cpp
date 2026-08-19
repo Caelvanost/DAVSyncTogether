@@ -59,9 +59,9 @@ namespace DAVSyncTogether
             return;
         }
 
-        // DAV hidden-helmet variants normally use overrideHead=showAll. The proxy still
-        // has the original ARMO equipped, so Skyrim continues to hide face/hair unless
-        // DAVSync restores those head parts explicitly.
+        // DAV hidden-helmet variants normally expose head/hair despite the original
+        // ARMO remaining equipped on the STR proxy. Restore those head parts while
+        // hidden; return to the normal equipped-helmet visibility when visible again.
         if (usesHead) {
             if (auto* face = actor->GetFaceNodeSkinned()) {
                 const bool wantCull = !hidden;
@@ -73,7 +73,7 @@ namespace DAVSyncTogether
         }
 
         if (usesHair) {
-            if (auto* hair = actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::Hair)) {
+            if (auto* hair = actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair)) {
                 const bool wantCull = !hidden;
                 if (hair->GetAppCulled() != wantCull) {
                     hair->CullNode(wantCull);
