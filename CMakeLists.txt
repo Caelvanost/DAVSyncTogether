@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     DAVSyncTogether
-    VERSION 0.4.0
+    VERSION 0.4.1
     LANGUAGES CXX
 )
 
@@ -16,6 +16,8 @@ add_commonlibsse_plugin(${PROJECT_NAME}
     SOURCES
         src/PCH.h
         src/main.cpp
+        src/DAVConfigIndex.cpp
+        src/DAVConfigIndex.h
         src/DAVProbe.cpp
         src/DAVProbe.h
         src/DAVStateSnapshot.cpp
