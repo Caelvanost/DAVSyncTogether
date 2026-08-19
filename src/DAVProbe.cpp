@@ -74,6 +74,7 @@ namespace DAVSyncTogether
     {
         _hasPrevious = false;
         _previous = {};
+        _networkTrackedForms.clear();
         SKSE::log::info("DAVST DAV armor-state probe reset");
     }
 
@@ -217,9 +218,10 @@ namespace DAVSyncTogether
         auto& network = DAVNetworkService::GetSingleton();
 
         for (const auto& armor : current.wornArmors) {
+            const auto stableKey = armor.armor.StableKey();
             bool changed = !_hasPrevious;
             if (_hasPrevious) {
-                const auto it = previousByForm.find(armor.armor.StableKey());
+                const auto it = previousByForm.find(stableKey);
                 changed = it == previousByForm.end() || !armor.VisualEquivalent(*it->second);
             }
 
@@ -230,7 +232,7 @@ namespace DAVSyncTogether
             SKSE::log::info(
                 "DAVST ARMOR_STATE armoRuntime={:08X} armoStable=\"{}\" editorID=\"{}\" name=\"{}\" state={} baseARMA={} activeARMA={}",
                 armor.armor.runtimeFormID,
-                armor.armor.StableKey(),
+                stableKey,
                 armor.editorID,
                 armor.name,
                 ArmorVisualStateName(armor.visualState),
@@ -245,7 +247,20 @@ namespace DAVSyncTogether
                 LogIdentityRoundTrip("ACTIVE_ARMA", addon);
             }
 
-            network.SendArmorState(armor, false);
+            const bool davActive =
+                armor.visualState == ArmorVisualState::Hidden ||
+                armor.visualState == ArmorVisualState::Replaced;
+            const bool wasTracked = _networkTrackedForms.contains(stableKey);
+
+            if (davActive || (wasTracked && armor.visualState == ArmorVisualState::Visible)) {
+                network.SendArmorState(armor, false);
+            }
+
+            if (davActive) {
+                _networkTrackedForms.insert(stableKey);
+            } else if (armor.visualState == ArmorVisualState::Visible) {
+                _networkTrackedForms.erase(stableKey);
+            }
         }
 
         if (_hasPrevious) {
@@ -255,16 +270,20 @@ namespace DAVSyncTogether
             }
 
             for (const auto& armor : _previous.wornArmors) {
-                if (!currentForms.contains(armor.armor.StableKey())) {
+                const auto stableKey = armor.armor.StableKey();
+                if (!currentForms.contains(stableKey)) {
                     SKSE::log::info(
                         "DAVST ARMOR_STATE armoRuntime={:08X} armoStable=\"{}\" editorID=\"{}\" name=\"{}\" state=UNEQUIPPED baseARMA={} activeARMA=[]",
                         armor.armor.runtimeFormID,
-                        armor.armor.StableKey(),
+                        stableKey,
                         armor.editorID,
                         armor.name,
                         FormatFormIdentities(armor.baseArmorAddons));
                     LogIdentityRoundTrip("ARMO", armor.armor);
-                    network.SendArmorState(armor, true);
+
+                    if (_networkTrackedForms.erase(stableKey) > 0) {
+                        network.SendArmorState(armor, true);
+                    }
                 }
             }
         }
