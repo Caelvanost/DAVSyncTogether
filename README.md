@@ -17,27 +17,32 @@ Those concerns belong to MorphSync Together and IEDSync Together respectively.
 
 ## Current status
 
-**v0.2.0 — DAV local visual-state probe**
+**v0.2.1 — targeted DAV armor-state probe**
 
-The repository was refocused on Dynamic Armor Variants after an early experimental RaceMenu probe was identified as overlapping MorphSync Together.
+This milestone replaces the broad scene-graph diff used by v0.2.0 with a DAV-specific representation.
 
-This milestone is read-only and does not yet send or apply remote state. It:
+For every worn ARMO that has Armor Addons, DAVSync now:
 
-- detects whether `DynamicArmorVariants.dll` is loaded
-- monitors the local player every 500 ms
-- records currently worn armor forms
-- captures a stable signature of the player's live 3D scene graph
-- logs scene-node additions/removals whenever the visual state changes
+- scans the live player 3D only for Skyrim biped armor geometry names
+- parses rendered `ARMA -> ARMO` pairs such as `"(FE02380B)[0]/ (FE023803) [100%]"`
+- compares rendered ARMA forms with the ARMO's original Armor Addons
+- classifies the effective visual state as:
+  - `VISIBLE` — rendered ARMA belongs to the original ARMO
+  - `HIDDEN` — the ARMO is worn but no matching biped ARMA is rendered
+  - `REPLACED` — at least one rendered ARMA is not one of the ARMO's original Armor Addons
+- logs `UNEQUIPPED` when a previously tracked ARMO is removed
 
-This lets us identify exactly what DAV changes when a variant is applied without depending on Dynamic Armor Variants Extended.
+The state hash no longer includes unrelated RaceMenu, SMP, IED or other scene nodes, so those systems should not generate DAVSync state changes.
+
+This milestone is still read-only. It does not transmit or apply state to Skyrim Together proxies yet.
 
 ## DAV compatibility strategy
 
 The original Dynamic Armor Variants exposes Papyrus functions such as `GetVariants`, `GetEquippedArmorsWithVariants`, `ApplyVariant`, `ResetVariant` and `ResetAllVariants`, but does not expose a native getter for the currently active variant.
 
-DAVSync Together therefore starts by observing DAV's **effective visual result** rather than reading private DAV state. This keeps the initial implementation compatible with the original `DynamicArmorVariants.dll`.
+DAVSync Together therefore observes DAV's **effective rendered Armor Addon result** rather than reading private DAV state. This keeps the current implementation compatible with the original `DynamicArmorVariants.dll`.
 
-Dynamic Armor Variants Extended (DAVE) may be supported as an optional richer integration later, but it is not a required dependency for the current probe.
+Dynamic Armor Variants Extended (DAVE) may be supported later as an optional richer integration, but it is not a required dependency.
 
 ## Planned architecture
 
@@ -82,22 +87,39 @@ with the DLL packaged as:
 SKSE/Plugins/DAVSyncTogether.dll
 ```
 
-## Test procedure for v0.2.0
+## Test procedure for v0.2.1
 
-After loading a save, perform a DAV-relevant equipment sequence, for example:
+After loading a save:
 
-1. equip the helmet
-2. change its DAV variant / hidden state
-3. restore its visible/default DAV state
-4. unequip and re-equip it if useful
+1. keep the helmet equipped and visible
+2. use DAV to hide it
+3. wait about 2 seconds
+4. use DAV to show it again
+5. wait about 2 seconds
+6. unequip the helmet
+7. re-equip it
 
-Then inspect `DAVSyncTogether.log` for:
+Inspect `DAVSyncTogether.log`. The relevant lines are now only:
 
-- `DAVST DAV_STATE`
-- `DAVST WORN_ARMOR`
-- `DAVST SCENE_DIFF`
-- `DAVST SCENE_NODE +`
-- `DAVST SCENE_NODE -`
+```text
+DAVST DAV_STATE ...
+DAVST ARMOR_STATE armo=... state=VISIBLE ...
+DAVST ARMOR_STATE armo=... state=HIDDEN ...
+DAVST ARMOR_STATE armo=... state=REPLACED ...
+DAVST ARMOR_STATE armo=... state=UNEQUIPPED ...
+```
+
+For the Iron Plate Helmet test already identified in v0.2.0, the expected visible state should resolve approximately as:
+
+```text
+armo=FE023803 state=VISIBLE baseARMA=[FE02380B] activeARMA=[FE02380B]
+```
+
+and the DAV-hidden state as:
+
+```text
+armo=FE023803 state=HIDDEN baseARMA=[FE02380B] activeARMA=[]
+```
 
 ## Versioning
 
