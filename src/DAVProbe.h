@@ -42,6 +42,6 @@ namespace DAVSyncTogether
 
         bool _hasPrevious{ false };
         DAVStateSnapshot _previous;
-        std::unordered_set<std::string> _networkTrackedForms;
+        std::unordered_map<std::string, std::string> _networkTrackedVariants;
     };
 }
