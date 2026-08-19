@@ -12,7 +12,7 @@ namespace DAVSyncTogether
 
         bool Start();
         void Stop();
-        void SendArmorState(const WornArmorState& armor, bool unequipped = false);
+        void SendArmorState(const WornArmorState& armor, std::string_view variant, bool unequipped = false);
 
         [[nodiscard]] bool IsRunning() const noexcept
         {
