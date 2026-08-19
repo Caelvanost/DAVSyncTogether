@@ -1,5 +1,6 @@
 #include "DAVProbe.h"
 
+#include "DAVConfigIndex.h"
 #include "DAVNetworkService.h"
 
 #include <Windows.h>
@@ -74,7 +75,7 @@ namespace DAVSyncTogether
     {
         _hasPrevious = false;
         _previous = {};
-        _networkTrackedForms.clear();
+        _networkTrackedVariants.clear();
         SKSE::log::info("DAVST DAV armor-state probe reset");
     }
 
@@ -163,10 +164,7 @@ namespace DAVSyncTogether
             }
             SortAndUniqueIdentities(state.activeArmorAddons);
 
-            state.visualState = ClassifyVisualState(
-                baseRuntimeAddons,
-                activeRuntimeAddons);
-
+            state.visualState = ClassifyVisualState(baseRuntimeAddons, activeRuntimeAddons);
             snapshot.wornArmors.push_back(std::move(state));
         }
 
@@ -216,6 +214,7 @@ namespace DAVSyncTogether
         }
 
         auto& network = DAVNetworkService::GetSingleton();
+        auto& config = DAVConfigIndex::GetSingleton();
 
         for (const auto& armor : current.wornArmors) {
             const auto stableKey = armor.armor.StableKey();
@@ -250,16 +249,29 @@ namespace DAVSyncTogether
             const bool davActive =
                 armor.visualState == ArmorVisualState::Hidden ||
                 armor.visualState == ArmorVisualState::Replaced;
-            const bool wasTracked = _networkTrackedForms.contains(stableKey);
-
-            if (davActive || (wasTracked && armor.visualState == ArmorVisualState::Visible)) {
-                network.SendArmorState(armor, false);
-            }
+            const auto tracked = _networkTrackedVariants.find(stableKey);
+            const bool wasTracked = tracked != _networkTrackedVariants.end();
 
             if (davActive) {
-                _networkTrackedForms.insert(stableKey);
-            } else if (armor.visualState == ArmorVisualState::Visible) {
-                _networkTrackedForms.erase(stableKey);
+                const auto matches = config.FindMatchingVariants(armor);
+                if (matches.size() == 1) {
+                    SKSE::log::info(
+                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} variant=\"{}\" candidates=1",
+                        stableKey,
+                        ArmorVisualStateName(armor.visualState),
+                        matches.front());
+                    network.SendArmorState(armor, matches.front(), false);
+                    _networkTrackedVariants.insert_or_assign(stableKey, matches.front());
+                } else {
+                    SKSE::log::warn(
+                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} candidates={} action=not-sent",
+                        stableKey,
+                        ArmorVisualStateName(armor.visualState),
+                        matches.size());
+                }
+            } else if (wasTracked && armor.visualState == ArmorVisualState::Visible) {
+                network.SendArmorState(armor, tracked->second, false);
+                _networkTrackedVariants.erase(tracked);
             }
         }
 
@@ -281,8 +293,9 @@ namespace DAVSyncTogether
                         FormatFormIdentities(armor.baseArmorAddons));
                     LogIdentityRoundTrip("ARMO", armor.armor);
 
-                    if (_networkTrackedForms.erase(stableKey) > 0) {
-                        network.SendArmorState(armor, true);
+                    if (const auto tracked = _networkTrackedVariants.find(stableKey); tracked != _networkTrackedVariants.end()) {
+                        network.SendArmorState(armor, tracked->second, true);
+                        _networkTrackedVariants.erase(tracked);
                     }
                 }
             }
@@ -320,48 +333,29 @@ namespace DAVSyncTogether
     std::optional<std::pair<RE::FormID, RE::FormID>> DAVProbe::ParseArmorNode(std::string_view name)
     {
         const auto firstOpen = name.find('(');
-        if (firstOpen == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (firstOpen == std::string_view::npos) return std::nullopt;
         const auto firstClose = name.find(')', firstOpen + 1);
-        if (firstClose == std::string_view::npos) {
-            return std::nullopt;
-        }
-
+        if (firstClose == std::string_view::npos) return std::nullopt;
         const auto slash = name.find('/', firstClose + 1);
-        if (slash == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (slash == std::string_view::npos) return std::nullopt;
         const auto secondOpen = name.find('(', slash + 1);
-        if (secondOpen == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (secondOpen == std::string_view::npos) return std::nullopt;
         const auto secondClose = name.find(')', secondOpen + 1);
-        if (secondClose == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (secondClose == std::string_view::npos) return std::nullopt;
 
         const auto arma = ParseFormID(name.substr(firstOpen + 1, firstClose - firstOpen - 1));
         const auto armo = ParseFormID(name.substr(secondOpen + 1, secondClose - secondOpen - 1));
-        if (!arma || !armo) {
-            return std::nullopt;
-        }
-
+        if (!arma || !armo) return std::nullopt;
         return std::pair{ *arma, *armo };
     }
 
     std::optional<RE::FormID> DAVProbe::ParseFormID(std::string_view text)
     {
-        if (text.empty() || text.size() > 8) {
-            return std::nullopt;
-        }
-
+        if (text.empty() || text.size() > 8) return std::nullopt;
         try {
             std::size_t consumed = 0;
             const auto value = std::stoul(std::string(text), std::addressof(consumed), 16);
-            if (consumed != text.size() || value > std::numeric_limits<std::uint32_t>::max()) {
-                return std::nullopt;
-            }
+            if (consumed != text.size() || value > std::numeric_limits<std::uint32_t>::max()) return std::nullopt;
             return static_cast<RE::FormID>(value);
         } catch (...) {
             return std::nullopt;
@@ -372,17 +366,12 @@ namespace DAVSyncTogether
         const std::vector<RE::FormID>& baseAddons,
         const std::vector<RE::FormID>& activeAddons) noexcept
     {
-        if (baseAddons.empty()) {
-            return ArmorVisualState::Unknown;
-        }
-        if (activeAddons.empty()) {
-            return ArmorVisualState::Hidden;
-        }
+        if (baseAddons.empty()) return ArmorVisualState::Unknown;
+        if (activeAddons.empty()) return ArmorVisualState::Hidden;
 
         const bool allBase = std::all_of(activeAddons.begin(), activeAddons.end(), [&](RE::FormID active) {
             return std::binary_search(baseAddons.begin(), baseAddons.end(), active);
         });
-
         return allBase ? ArmorVisualState::Visible : ArmorVisualState::Replaced;
     }
 
@@ -390,9 +379,7 @@ namespace DAVSyncTogether
     {
         std::string result = "[";
         for (std::size_t i = 0; i < values.size(); ++i) {
-            if (i != 0) {
-                result += ',';
-            }
+            if (i != 0) result += ',';
             result += '"';
             result += values[i].StableKey();
             result += '"';
