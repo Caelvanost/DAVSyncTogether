@@ -9,84 +9,91 @@ namespace DAVSyncTogether
             return result;
         }
 
-        bool cull = false;
-        switch (state.state) {
-        case NetworkArmorState::Hidden:
-            result.supported = true;
-            cull = true;
-            break;
-        case NetworkArmorState::Visible:
-        case NetworkArmorState::Unequipped:
-            result.supported = true;
-            cull = false;
-            break;
-        case NetworkArmorState::Replaced:
-        default:
+        auto* form = RE::TESForm::LookupByID(state.armor.runtimeFormID);
+        auto* armor = form ? form->As<RE::TESObjectARMO>() : nullptr;
+        if (!armor) {
             return result;
         }
 
-        VisitAndApply(proxyActor->Get3D(), state.armor.runtimeFormID, cull, result);
-
-        if (auto* form = RE::TESForm::LookupByID(state.armor.runtimeFormID)) {
-            if (auto* armor = form->As<RE::TESObjectARMO>()) {
-                ApplyHeadHairVisibility(
-                    proxyActor,
-                    armor,
-                    state.state == NetworkArmorState::Hidden,
-                    result);
+        switch (state.state) {
+        case NetworkArmorState::Hidden:
+        case NetworkArmorState::Replaced:
+            result.supported = !state.variant.empty();
+            if (result.supported) {
+                result.dispatched = DispatchApplyVariant(proxyActor, state.variant);
             }
+            if (!result.dispatched && state.state == NetworkArmorState::Hidden) {
+                // Conservative fallback: preserve the working helmet-hide behavior, but
+                // never touch face or hair nodes directly.
+                FallbackCull(proxyActor->Get3D(), state.armor.runtimeFormID, true, result);
+                result.supported = result.fallbackNodes > 0;
+            }
+            break;
+
+        case NetworkArmorState::Visible:
+        case NetworkArmorState::Unequipped:
+            result.supported = true;
+            result.dispatched = DispatchResetVariant(proxyActor, armor);
+            if (!result.dispatched) {
+                FallbackCull(proxyActor->Get3D(), state.armor.runtimeFormID, false, result);
+                result.supported = result.fallbackNodes > 0;
+            }
+            break;
+
+        default:
+            break;
         }
 
         return result;
     }
 
-    void DAVRemoteApplier::ApplyHeadHairVisibility(
-        RE::Actor* actor,
-        RE::TESObjectARMO* armor,
-        bool hidden,
-        RemoteApplyResult& result)
+    bool DAVRemoteApplier::DispatchApplyVariant(RE::Actor* actor, std::string_view variant)
     {
-        if (!actor || !armor) {
-            return;
+        auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
+        if (!vm || !actor || variant.empty()) {
+            return false;
         }
 
-        const auto headSlot = static_cast<RE::BGSBipedObjectForm::BipedObjectSlot>(1u << 0);
-        const auto hairSlot = static_cast<RE::BGSBipedObjectForm::BipedObjectSlot>(1u << 1);
-        const bool usesHead = armor->HasPartOf(headSlot);
-        const bool usesHair = armor->HasPartOf(hairSlot);
+        RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
+        auto* args = RE::MakeFunctionArguments(actor, std::string(variant));
+        const bool dispatched = vm->DispatchStaticCall(
+            RE::BSFixedString("DynamicArmor"),
+            RE::BSFixedString("ApplyVariant"),
+            args,
+            callback);
 
-        if (!usesHead && !usesHair) {
-            return;
-        }
-
-        // Never cull the actor face node ourselves. Doing so can make the entire remote
-        // head disappear and steps outside DAVSync's equipment-visual responsibility.
-        // For a hidden helmet we may only undo an existing app-cull so the face remains
-        // visible while the original head-slot ARMO is still equipped on the STR proxy.
-        if (hidden && usesHead) {
-            if (auto* face = actor->GetFaceNodeSkinned()) {
-                if (face->GetAppCulled()) {
-                    face->CullNode(false);
-                    ++result.headFixes;
-                }
-            }
-        }
-
-        // Hair is the only head part DAVSync actively toggles. A DAV-hidden helmet must
-        // reveal it even though the source ARMO still occupies slot 31 on the proxy.
-        // When the helmet is visible again, restore the slot-31 hidden state.
-        if (usesHair) {
-            if (auto* hair = actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair)) {
-                const bool wantCull = !hidden;
-                if (hair->GetAppCulled() != wantCull) {
-                    hair->CullNode(wantCull);
-                    ++result.headFixes;
-                }
-            }
-        }
+        SKSE::log::info(
+            "DAVST DAV_API ApplyVariant actor={:08X} variant=\"{}\" dispatched={}",
+            actor->GetFormID(),
+            variant,
+            dispatched ? 1 : 0);
+        return dispatched;
     }
 
-    void DAVRemoteApplier::VisitAndApply(
+    bool DAVRemoteApplier::DispatchResetVariant(RE::Actor* actor, RE::TESObjectARMO* armor)
+    {
+        auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
+        if (!vm || !actor || !armor) {
+            return false;
+        }
+
+        RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
+        auto* args = RE::MakeFunctionArguments(actor, armor);
+        const bool dispatched = vm->DispatchStaticCall(
+            RE::BSFixedString("DynamicArmor"),
+            RE::BSFixedString("ResetVariant"),
+            args,
+            callback);
+
+        SKSE::log::info(
+            "DAVST DAV_API ResetVariant actor={:08X} armor={:08X} dispatched={}",
+            actor->GetFormID(),
+            armor->GetFormID(),
+            dispatched ? 1 : 0);
+        return dispatched;
+    }
+
+    void DAVRemoteApplier::FallbackCull(
         RE::NiAVObject* object,
         RE::FormID armorFormID,
         bool cull,
@@ -101,12 +108,9 @@ namespace DAVSyncTogether
             if (const auto parsed = ParseArmorNode(rawName)) {
                 const auto [arma, armo] = *parsed;
                 (void)arma;
-                if (armo == armorFormID) {
-                    ++result.matchedNodes;
-                    if (object->GetAppCulled() != cull) {
-                        object->CullNode(cull);
-                        ++result.changedNodes;
-                    }
+                if (armo == armorFormID && object->GetAppCulled() != cull) {
+                    object->CullNode(cull);
+                    ++result.fallbackNodes;
                 }
             }
         }
@@ -114,7 +118,7 @@ namespace DAVSyncTogether
         if (auto* node = object->AsNode()) {
             for (auto& child : node->GetChildren()) {
                 if (child) {
-                    VisitAndApply(child.get(), armorFormID, cull, result);
+                    FallbackCull(child.get(), armorFormID, cull, result);
                 }
             }
         }
@@ -123,48 +127,29 @@ namespace DAVSyncTogether
     std::optional<std::pair<RE::FormID, RE::FormID>> DAVRemoteApplier::ParseArmorNode(std::string_view name)
     {
         const auto firstOpen = name.find('(');
-        if (firstOpen == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (firstOpen == std::string_view::npos) return std::nullopt;
         const auto firstClose = name.find(')', firstOpen + 1);
-        if (firstClose == std::string_view::npos) {
-            return std::nullopt;
-        }
-
+        if (firstClose == std::string_view::npos) return std::nullopt;
         const auto slash = name.find('/', firstClose + 1);
-        if (slash == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (slash == std::string_view::npos) return std::nullopt;
         const auto secondOpen = name.find('(', slash + 1);
-        if (secondOpen == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (secondOpen == std::string_view::npos) return std::nullopt;
         const auto secondClose = name.find(')', secondOpen + 1);
-        if (secondClose == std::string_view::npos) {
-            return std::nullopt;
-        }
+        if (secondClose == std::string_view::npos) return std::nullopt;
 
         const auto arma = ParseFormID(name.substr(firstOpen + 1, firstClose - firstOpen - 1));
         const auto armo = ParseFormID(name.substr(secondOpen + 1, secondClose - secondOpen - 1));
-        if (!arma || !armo) {
-            return std::nullopt;
-        }
-
+        if (!arma || !armo) return std::nullopt;
         return std::pair{ *arma, *armo };
     }
 
     std::optional<RE::FormID> DAVRemoteApplier::ParseFormID(std::string_view text)
     {
-        if (text.empty() || text.size() > 8) {
-            return std::nullopt;
-        }
-
+        if (text.empty() || text.size() > 8) return std::nullopt;
         try {
             std::size_t consumed = 0;
             const auto value = std::stoul(std::string(text), std::addressof(consumed), 16);
-            if (consumed != text.size() || value > std::numeric_limits<std::uint32_t>::max()) {
-                return std::nullopt;
-            }
+            if (consumed != text.size() || value > std::numeric_limits<std::uint32_t>::max()) return std::nullopt;
             return static_cast<RE::FormID>(value);
         } catch (...) {
             return std::nullopt;
