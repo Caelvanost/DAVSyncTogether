@@ -19,13 +19,48 @@ namespace DAVSyncTogether
                 FeedByte(hash, static_cast<std::uint8_t>((value >> shift) & 0xFF));
             }
         }
+
+        void FeedText(std::uint64_t& hash, std::string_view value) noexcept
+        {
+            for (const unsigned char ch : value) {
+                FeedByte(hash, ch);
+            }
+            FeedByte(hash, 0xFF);
+        }
+
+        void FeedIdentity(std::uint64_t& hash, const FormIdentity& identity) noexcept
+        {
+            if (identity.IsStable()) {
+                FeedText(hash, identity.plugin);
+                FeedU32(hash, identity.localFormID);
+            } else {
+                FeedText(hash, "runtime");
+                FeedU32(hash, identity.runtimeFormID);
+            }
+        }
+
+        bool IdentityVectorsEquivalent(
+            const std::vector<FormIdentity>& lhs,
+            const std::vector<FormIdentity>& rhs) noexcept
+        {
+            if (lhs.size() != rhs.size()) {
+                return false;
+            }
+
+            for (std::size_t i = 0; i < lhs.size(); ++i) {
+                if (!lhs[i].StableEquivalent(rhs[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     bool WornArmorState::VisualEquivalent(const WornArmorState& rhs) const noexcept
     {
-        return formID == rhs.formID &&
+        return armor.StableEquivalent(rhs.armor) &&
                visualState == rhs.visualState &&
-               activeArmorAddons == rhs.activeArmorAddons;
+               IdentityVectorsEquivalent(activeArmorAddons, rhs.activeArmorAddons);
     }
 
     std::uint64_t DAVStateSnapshot::StateHash() const noexcept
@@ -33,13 +68,13 @@ namespace DAVSyncTogether
         std::uint64_t hash = kFnvOffset;
         FeedByte(hash, davLoaded ? 1 : 0);
 
-        for (const auto& armor : wornArmors) {
-            FeedU32(hash, armor.formID);
-            FeedByte(hash, static_cast<std::uint8_t>(armor.visualState));
-            for (const auto addon : armor.activeArmorAddons) {
-                FeedU32(hash, addon);
+        for (const auto& armorState : wornArmors) {
+            FeedIdentity(hash, armorState.armor);
+            FeedByte(hash, static_cast<std::uint8_t>(armorState.visualState));
+            for (const auto& addon : armorState.activeArmorAddons) {
+                FeedIdentity(hash, addon);
             }
-            FeedByte(hash, 0xFF);
+            FeedByte(hash, 0xFE);
         }
 
         return hash;
