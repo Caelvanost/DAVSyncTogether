@@ -8,19 +8,11 @@ DAVSync Together handles only DAV-controlled equipment visuals. It intentionally
 
 ## Current status
 
-**v0.4.2 — build fix for DAV filtering/head-hair safety**
+**v0.4.3 — face-safe helmet visibility restore**
 
-v0.4.1 added two protections after the first remote-visibility tests:
+The v0.4.2 multiplayer logs confirmed that STRPM transport, proxy resolution, DAV relevance filtering and remote helmet-node application all work in both directions.
 
-- DAV config relevance filtering to avoid unrelated technical ARMO traffic;
-- explicit face/hair restoration for hidden helmets on STR proxies.
-
-v0.4.2 is a compile-only correction for that work:
-
-- fixes the C++ raw-string delimiters used by the DAV JSON regex scanner;
-- uses the CommonLibSSE-NG enum `RE::BGSHeadPart::HeadPartType::kHair` for hair-node lookup.
-
-No network protocol or synchronization behavior changes from the intended v0.4.1 design.
+v0.4.3 tightens the head/hair correction after those logs showed `headFixes=1` on a `VISIBLE` transition. DAVSync must never make the entire proxy face disappear while restoring a helmet.
 
 ### DAV config relevance index
 
@@ -38,9 +30,7 @@ Before a state is sent through STRPM, the worn ARMO must have at least one base 
 DAVST STRPM TX_FILTERED ... reason=not-in-dav-config
 ```
 
-This prevents false DAV traffic from OCum or other systems that merely happen to lose a rendered node.
-
-### Head/hair-safe hidden helmets
+### Face/hair-safe hidden helmets
 
 Remote application still targets only Skyrim biped nodes of the form:
 
@@ -50,12 +40,14 @@ Remote application still targets only Skyrim biped nodes of the form:
 
 For an ARMO using slot 30 (Head) and/or slot 31 (Hair):
 
-- `HIDDEN` culls the armor node and explicitly restores the proxy face/hair nodes;
-- `VISIBLE` restores the armor node and returns the affected head/hair nodes to the hidden state expected from those slots;
-- `UNEQUIPPED` clears DAVSync culling;
+- `HIDDEN` culls the matching armor node;
+- while `HIDDEN`, DAVSync may **uncull** an already-culled face node, but it never culls the face node itself;
+- while `HIDDEN`, the hair node is unculled when the ARMO occupies slot 31;
+- `VISIBLE` restores the armor node and only restores the slot-31 hair cull; face visibility is left to Skyrim/STR;
+- `UNEQUIPPED` clears DAVSync armor-node culling;
 - `REPLACED` remains transport-only until a true replacement variant is validated.
 
-The receive log includes `headFixes=` for this correction.
+The receive log includes `headFixes=` for head/hair corrections.
 
 ## Multiplayer architecture
 
@@ -118,18 +110,18 @@ The Vortex-ready archive is generated under:
 dist/DAVSyncTogether-<version>.zip
 ```
 
-## Test procedure for v0.4.2
+## Test procedure for v0.4.3
 
 Install the same build on Player1 and Player2 and connect both through Skyrim Together Reborn.
 
-For Kahel and Elir, test a helmet DAV cycle:
+For Kahel and Elir, test a helmet DAV cycle **after both players are connected**:
 
 1. helmet visible;
 2. hide through DAV;
-3. confirm the remote helmet disappears while the face and hair remain correct;
+3. confirm the remote helmet disappears while face and hair remain correct;
 4. show through DAV;
-5. confirm helmet/head/hair all return to the expected state;
-6. repeat once in the opposite player direction.
+5. confirm the helmet returns and the face remains visible;
+6. repeat in the opposite player direction.
 
 Relevant logs:
 
