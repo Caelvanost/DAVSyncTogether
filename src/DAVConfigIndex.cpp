@@ -61,6 +61,13 @@ namespace DAVSyncTogether
             }
             return result;
         }
+
+        bool ContainsStable(const std::vector<FormIdentity>& values, const FormIdentity& needle)
+        {
+            return std::any_of(values.begin(), values.end(), [&](const FormIdentity& value) {
+                return value.StableEquivalent(needle);
+            });
+        }
     }
 
     DAVConfigIndex& DAVConfigIndex::GetSingleton()
@@ -209,6 +216,71 @@ namespace DAVSyncTogether
         }
 
         for (const auto& [name, variant] : _variants) {
+            if (armor.visualState == ArmorVisualState::Replaced) {
+                // ARMO records commonly contain multiple ARMA alternatives for sex/race.
+                // Only one subset is actually rendered for the actor. Build the union of
+                // replacement ARMA that this variant can produce from any base ARMA, then
+                // match the observed rendered subset instead of requiring every ARMO ARMA
+                // alternative to appear simultaneously.
+                bool affected = false;
+                std::vector<FormIdentity> replacementPool;
+
+                for (const auto& base : armor.baseArmorAddons) {
+                    if (const auto direct = variant.replaceByForm.find(base.StableKey()); direct != variant.replaceByForm.end()) {
+                        affected = true;
+                        replacementPool.insert(replacementPool.end(), direct->second.begin(), direct->second.end());
+                        continue;
+                    }
+
+                    auto* form = base.Resolve();
+                    auto* addon = form ? form->As<RE::TESObjectARMA>() : nullptr;
+                    if (!addon) {
+                        continue;
+                    }
+
+                    std::vector<std::uint32_t> slots;
+                    slots.reserve(variant.replaceBySlot.size());
+                    for (const auto& [slot, replacements] : variant.replaceBySlot) {
+                        (void)replacements;
+                        slots.push_back(slot);
+                    }
+                    std::sort(slots.begin(), slots.end());
+                    for (const auto slot : slots) {
+                        if (!ArmorAddonUsesSlot(addon, slot)) {
+                            continue;
+                        }
+                        affected = true;
+                        const auto& replacements = variant.replaceBySlot.at(slot);
+                        replacementPool.insert(replacementPool.end(), replacements.begin(), replacements.end());
+                        break;
+                    }
+                }
+
+                SortAndUnique(replacementPool);
+                if (!affected || replacementPool.empty()) {
+                    continue;
+                }
+
+                bool sawReplacement = false;
+                bool compatible = true;
+                for (const auto& active : armor.activeArmorAddons) {
+                    if (ContainsStable(replacementPool, active)) {
+                        sawReplacement = true;
+                        continue;
+                    }
+                    if (ContainsStable(armor.baseArmorAddons, active)) {
+                        continue;
+                    }
+                    compatible = false;
+                    break;
+                }
+
+                if (compatible && sawReplacement) {
+                    matches.push_back(name);
+                }
+                continue;
+            }
+
             bool affected = false;
             auto expected = BuildExpectedActive(armor, variant, affected);
             if (!affected) {
