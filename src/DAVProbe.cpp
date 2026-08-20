@@ -21,6 +21,21 @@ namespace DAVSyncTogether
                 }),
                 values.end());
         }
+
+        std::string FormatCandidateNames(const std::vector<std::string>& values)
+        {
+            std::string result = "[";
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                if (i != 0) {
+                    result += ',';
+                }
+                result += '"';
+                result += values[i];
+                result += '"';
+            }
+            result += ']';
+            return result;
+        }
     }
 
     DAVProbe& DAVProbe::GetSingleton()
@@ -260,6 +275,17 @@ namespace DAVSyncTogether
                     selected = matches.front();
                 } else if (armor.visualState == ArmorVisualState::Hidden && !matches.empty()) {
                     selected = config.ChoosePreferredHiddenVariant(armor, matches);
+                } else if (armor.visualState == ArmorVisualState::Replaced && !matches.empty()) {
+                    selected = config.ChoosePreferredReplacedVariant(armor, matches);
+                }
+
+                if (armor.visualState == ArmorVisualState::Replaced) {
+                    SKSE::log::info(
+                        "DAVST REPLACED_MATCH armoStable=\"{}\" activeARMA={} candidates={} names={}",
+                        stableKey,
+                        FormatFormIdentities(armor.activeArmorAddons),
+                        matches.size(),
+                        FormatCandidateNames(matches));
                 }
 
                 if (selected) {
@@ -278,7 +304,7 @@ namespace DAVSyncTogether
                         matches.size());
                 } else {
                     SKSE::log::warn(
-                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} candidates={} action=not-sent",
+                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} candidates={} action=ambiguous-not-sent",
                         stableKey,
                         ArmorVisualStateName(armor.visualState),
                         matches.size());
