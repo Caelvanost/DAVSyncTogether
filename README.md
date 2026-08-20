@@ -8,20 +8,23 @@ DAVSync Together handles only DAV-controlled equipment visuals. RaceMenu appeara
 
 ## Current status
 
-**v0.6.0 — REPLACED variant synchronization validation**
+**v0.6.1 — actor-specific REPLACED matching**
 
-v0.5.2 established the head-safe DAV-native path for hidden helmets. v0.6.0 extends the same architecture to visible replacement variants (`REPLACED`) while keeping ambiguous cases conservative.
+v0.5.2 established the head-safe DAV-native path for hidden helmets. v0.6.0 added visible replacement (`REPLACED`) synchronization. Multiplayer testing with the vanilla Common Mage Hood and Dynamic Lowered Hoods exposed an ARMA-selection edge case: an ARMO can reference several alternative Armor Addons for sex/race while the actor renders only one of them.
+
+v0.6.1 fixes matching by comparing the observed replacement ARMA against the union of replacements that a DAV variant can produce from the ARMO's possible base Armor Addons. It no longer requires every sex/race alternative ARMA to be rendered simultaneously.
 
 ### REPLACED variant selection
 
 When DAV renders one or more Armor Addons that differ from the equipped ARMO's base Armor Addons, DAVSync classifies the state as `REPLACED`.
 
-DAVSync compares the observed active ARMA set against the expected result of every relevant DAV variant. If several variants produce the same rendered result, v0.6.0 ranks them by specificity:
+For `REPLACED`, DAVSync now:
 
-- exact `replaceByForm` matches are strongly preferred;
-- matching `replaceBySlot` rules are secondary;
-- narrower rules are preferred over broad generic rules;
-- if two candidates remain equally specific, DAVSync does **not** guess.
+- collects replacement ARMA reachable from each base ARMA through `replaceByForm` or the first matching `replaceBySlot` rule;
+- accepts the actor's actually rendered ARMA as a subset of those possible replacements;
+- allows unchanged base ARMA to coexist with replacements for multi-addon armor;
+- requires at least one observed replacement ARMA before considering the variant a match;
+- ranks multiple candidates conservatively and does not guess when specificity is tied.
 
 A selected replacement is sent through STRPM and applied by DAV itself:
 
@@ -32,16 +35,18 @@ DynamicArmor.ResetVariant(proxy, armor)
 
 ### REPLACED diagnostics
 
-When a real replacement is detected, the sender now logs:
+A real replacement produces:
 
 ```text
-DAVST REPLACED_MATCH armoStable="..." activeARMA=["..."] candidates=N names=["..."]
+DAVST ARMOR_STATE ... state=REPLACED baseARMA=[...] activeARMA=[...]
+DAVST REPLACED_MATCH ... candidates=N names=[...]
 ```
 
-If a variant is safely selected:
+If safely selected:
 
 ```text
 DAVST VARIANT_MATCH ... state=REPLACED variant="..." candidates=N action=send-selected
+DAVST STRPM TX ... state=REPLACED variant="..." result=ok
 ```
 
 If candidates remain indistinguishable:
@@ -49,8 +54,6 @@ If candidates remain indistinguishable:
 ```text
 DAVST VARIANT_MATCH ... state=REPLACED candidates=N action=ambiguous-not-sent
 ```
-
-This keeps replacement synchronization safe while exposing enough information to refine any remaining edge case.
 
 ### Head-safe hidden helmets
 
@@ -124,25 +127,24 @@ The Vortex-ready archive is generated under:
 dist/DAVSyncTogether-<version>.zip
 ```
 
-## Test procedure for v0.6.0
+## Test procedure for v0.6.1
 
 Install the same build and DAV configuration on Player1 and Player2 and connect both players before changing variants.
 
-Use any DAV item that has a **visible alternate variant** rather than a hidden variant. A valid test must produce an `ARMOR_STATE ... state=REPLACED` line where `activeARMA` differs from `baseARMA`.
+Recommended regression test: **Common Mage Hood** with **Dynamic Lowered Hoods**.
 
-Test sequence:
-
-1. equip the item in its normal variant;
-2. switch to a visible DAV alternate variant;
-3. confirm the remote client sees the same alternate model;
-4. switch back to the base variant;
-5. confirm the remote model returns to normal;
-6. repeat in the opposite player direction.
+1. equip the Common Mage Hood in its raised state;
+2. trigger the lowered-hood DAV variant;
+3. confirm the local log reports `state=REPLACED` with an active ARMA from `DynamicLoweredHoods.esp`;
+4. confirm `REPLACED_MATCH` finds one or more candidates;
+5. confirm the remote proxy shows the lowered hood;
+6. switch back to the raised hood and confirm `ResetVariant` restores the remote model;
+7. repeat in the opposite player direction.
 
 Expected sender log:
 
 ```text
-DAVST ARMOR_STATE ... state=REPLACED baseARMA=[...] activeARMA=[...]
+DAVST ARMOR_STATE ... state=REPLACED baseARMA=[...] activeARMA=["DynamicLoweredHoods.esp|..."]
 DAVST REPLACED_MATCH ... candidates=N names=[...]
 DAVST VARIANT_MATCH ... state=REPLACED variant="..." action=send-selected
 DAVST STRPM TX ... state=REPLACED variant="..." result=ok
