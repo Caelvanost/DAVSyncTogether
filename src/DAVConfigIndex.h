@@ -12,6 +12,9 @@ namespace DAVSyncTogether
         void Load();
         [[nodiscard]] bool IsArmorRelevant(const WornArmorState& armor) const;
         [[nodiscard]] std::vector<std::string> FindMatchingVariants(const WornArmorState& armor) const;
+        [[nodiscard]] std::optional<std::string> ChoosePreferredHiddenVariant(
+            const WornArmorState& armor,
+            const std::vector<std::string>& candidates) const;
 
     private:
         struct VariantRule
@@ -31,6 +34,7 @@ namespace DAVSyncTogether
             const WornArmorState& armor,
             const VariantRule& variant,
             bool& affected) const;
+        [[nodiscard]] int ScoreHiddenVariant(const WornArmorState& armor, const VariantRule& variant) const;
 
         std::unordered_set<std::string> _sourceArmorAddons;
         std::unordered_set<std::uint32_t> _sourceSlots;
