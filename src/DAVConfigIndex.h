@@ -37,8 +37,6 @@ namespace DAVSyncTogether
                 }
             }
 
-            // For head-slot equipment, never select a variant that explicitly hides
-            // the whole head. Prefer DAV's own showAll/showHead semantics.
             if (best && bestScore > -500) {
                 return best;
             }
@@ -73,9 +71,6 @@ namespace DAVSyncTogether
                 }
             }
 
-            // REPLACED must remain conservative: if two rules are equally specific,
-            // do not guess because their non-ARMA semantics (including overrideHead)
-            // may differ even when they render the same replacement set.
             return best && !tied ? best : std::nullopt;
         }
 
@@ -97,6 +92,18 @@ namespace DAVSyncTogether
             const WornArmorState& armor,
             const VariantRule& variant,
             bool& affected) const;
+
+        [[nodiscard]] static bool IsPlayerScopedVariant(const VariantRule& variant)
+        {
+            auto containsPlayer = [](std::string value) {
+                std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+                    return static_cast<char>(std::tolower(ch));
+                });
+                return value.find("player") != std::string::npos;
+            };
+
+            return containsPlayer(variant.name) || containsPlayer(variant.linkTo);
+        }
 
         [[nodiscard]] int ScoreHiddenVariant(const WornArmorState& armor, const VariantRule& variant) const
         {
@@ -139,9 +146,16 @@ namespace DAVSyncTogether
         {
             int score = 0;
 
+            // Network receivers apply variants to STR proxy actors, not to the real
+            // PlayerCharacter. Helmet Toggle 2 explicitly defines *Player variants
+            // for the local player and generic variants (e.g. LoweredHoods) for NPCs.
+            // Prefer the generic/NPC rule whenever the rendered ARMA result is identical.
+            if (IsPlayerScopedVariant(variant)) {
+                score -= 100000;
+            }
+
             for (const auto& base : armor.baseArmorAddons) {
                 if (variant.replaceByForm.contains(base.StableKey())) {
-                    // A form-specific rule is much stronger evidence than a generic slot rule.
                     score += 10000;
                     continue;
                 }
@@ -161,7 +175,6 @@ namespace DAVSyncTogether
                 }
             }
 
-            // Prefer the narrower rule when two candidates produce the same ARMA set.
             score -= static_cast<int>(variant.replaceByForm.size() * 10);
             score -= static_cast<int>(variant.replaceBySlot.size());
             return score;
