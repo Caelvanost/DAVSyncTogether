@@ -254,21 +254,28 @@ namespace DAVSyncTogether
 
             if (davActive) {
                 const auto matches = config.FindMatchingVariants(armor);
+                std::optional<std::string> selected;
+
                 if (matches.size() == 1) {
+                    selected = matches.front();
+                } else if (armor.visualState == ArmorVisualState::Hidden && !matches.empty()) {
+                    selected = config.ChoosePreferredHiddenVariant(armor, matches);
+                }
+
+                if (selected) {
                     SKSE::log::info(
-                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} variant=\"{}\" candidates=1 action=dav-api",
+                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} variant=\"{}\" candidates={} action=send-selected",
                         stableKey,
                         ArmorVisualStateName(armor.visualState),
-                        matches.front());
-                    network.SendArmorState(armor, matches.front(), false);
-                    _networkTrackedVariants.insert_or_assign(stableKey, matches.front());
-                } else if (armor.visualState == ArmorVisualState::Hidden && config.IsArmorRelevant(armor)) {
+                        *selected,
+                        matches.size());
+                    network.SendArmorState(armor, *selected, false);
+                    _networkTrackedVariants.insert_or_assign(stableKey, *selected);
+                } else if (armor.visualState == ArmorVisualState::Hidden) {
                     SKSE::log::warn(
-                        "DAVST VARIANT_MATCH armoStable=\"{}\" state=HIDDEN candidates={} action=send-fallback",
+                        "DAVST VARIANT_MATCH armoStable=\"{}\" state=HIDDEN candidates={} action=head-safe-no-apply",
                         stableKey,
                         matches.size());
-                    network.SendArmorState(armor, {}, false);
-                    _networkTrackedVariants.insert_or_assign(stableKey, std::string{});
                 } else {
                     SKSE::log::warn(
                         "DAVST VARIANT_MATCH armoStable=\"{}\" state={} candidates={} action=not-sent",
