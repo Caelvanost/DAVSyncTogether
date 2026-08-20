@@ -256,12 +256,19 @@ namespace DAVSyncTogether
                 const auto matches = config.FindMatchingVariants(armor);
                 if (matches.size() == 1) {
                     SKSE::log::info(
-                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} variant=\"{}\" candidates=1",
+                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} variant=\"{}\" candidates=1 action=dav-api",
                         stableKey,
                         ArmorVisualStateName(armor.visualState),
                         matches.front());
                     network.SendArmorState(armor, matches.front(), false);
                     _networkTrackedVariants.insert_or_assign(stableKey, matches.front());
+                } else if (armor.visualState == ArmorVisualState::Hidden && config.IsArmorRelevant(armor)) {
+                    SKSE::log::warn(
+                        "DAVST VARIANT_MATCH armoStable=\"{}\" state=HIDDEN candidates={} action=send-fallback",
+                        stableKey,
+                        matches.size());
+                    network.SendArmorState(armor, {}, false);
+                    _networkTrackedVariants.insert_or_assign(stableKey, std::string{});
                 } else {
                     SKSE::log::warn(
                         "DAVST VARIANT_MATCH armoStable=\"{}\" state={} candidates={} action=not-sent",
