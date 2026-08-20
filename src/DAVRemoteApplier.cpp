@@ -2,6 +2,19 @@
 
 namespace DAVSyncTogether
 {
+    namespace
+    {
+        bool ArmorTouchesHeadOrHair(RE::TESObjectARMO* armor)
+        {
+            if (!armor) {
+                return false;
+            }
+            const auto headSlot = static_cast<RE::BGSBipedObjectForm::BipedObjectSlot>(1u << 0);
+            const auto hairSlot = static_cast<RE::BGSBipedObjectForm::BipedObjectSlot>(1u << 1);
+            return armor->HasPartOf(headSlot) || armor->HasPartOf(hairSlot);
+        }
+    }
+
     RemoteApplyResult DAVRemoteApplier::Apply(RE::Actor* proxyActor, const RemoteArmorState& state)
     {
         RemoteApplyResult result;
@@ -15,6 +28,8 @@ namespace DAVSyncTogether
             return result;
         }
 
+        const bool touchesHead = ArmorTouchesHeadOrHair(armor);
+
         switch (state.state) {
         case NetworkArmorState::Hidden:
         case NetworkArmorState::Replaced:
@@ -22,11 +37,15 @@ namespace DAVSyncTogether
             if (result.supported) {
                 result.dispatched = DispatchApplyVariant(proxyActor, state.variant);
             }
-            if (!result.dispatched && state.state == NetworkArmorState::Hidden) {
-                // Conservative fallback: preserve the working helmet-hide behavior, but
-                // never touch face or hair nodes directly.
+            if (!result.dispatched && state.state == NetworkArmorState::Hidden && !touchesHead) {
                 FallbackCull(proxyActor->Get3D(), state.armor.runtimeFormID, true, result);
                 result.supported = result.fallbackNodes > 0;
+            } else if (!result.dispatched && touchesHead) {
+                SKSE::log::warn(
+                    "DAVST HEAD_SAFE no node-cull fallback armor={:08X} state={} variant=\"{}\"",
+                    armor->GetFormID(),
+                    NetworkArmorStateName(state.state),
+                    state.variant);
             }
             break;
 
@@ -34,7 +53,7 @@ namespace DAVSyncTogether
         case NetworkArmorState::Unequipped:
             result.supported = true;
             result.dispatched = DispatchResetVariant(proxyActor, armor);
-            if (!result.dispatched) {
+            if (!result.dispatched && !touchesHead) {
                 FallbackCull(proxyActor->Get3D(), state.armor.runtimeFormID, false, result);
                 result.supported = result.fallbackNodes > 0;
             }
