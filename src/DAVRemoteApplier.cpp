@@ -55,7 +55,9 @@ namespace DAVSyncTogether
         }
 
         RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
-        auto* args = RE::MakeFunctionArguments(actor, std::string(variant));
+        auto* args = RE::MakeFunctionArguments(
+            static_cast<RE::Actor*>(actor),
+            std::string(variant));
         const bool dispatched = vm->DispatchStaticCall(
             RE::BSFixedString("DynamicArmor"),
             RE::BSFixedString("ApplyVariant"),
@@ -78,7 +80,9 @@ namespace DAVSyncTogether
         }
 
         RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
-        auto* args = RE::MakeFunctionArguments(actor, armor);
+        auto* args = RE::MakeFunctionArguments(
+            static_cast<RE::Actor*>(actor),
+            static_cast<RE::TESObjectARMO*>(armor));
         const bool dispatched = vm->DispatchStaticCall(
             RE::BSFixedString("DynamicArmor"),
             RE::BSFixedString("ResetVariant"),
