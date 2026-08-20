@@ -45,6 +45,40 @@ namespace DAVSyncTogether
             return std::nullopt;
         }
 
+        [[nodiscard]] std::optional<std::string> ChoosePreferredReplacedVariant(
+            const WornArmorState& armor,
+            const std::vector<std::string>& candidates) const
+        {
+            if (candidates.empty()) {
+                return std::nullopt;
+            }
+
+            int bestScore = std::numeric_limits<int>::min();
+            std::optional<std::string> best;
+            bool tied = false;
+
+            for (const auto& name : candidates) {
+                const auto it = _variants.find(name);
+                if (it == _variants.end()) {
+                    continue;
+                }
+
+                const int score = ScoreReplacedVariant(armor, it->second);
+                if (!best || score > bestScore) {
+                    bestScore = score;
+                    best = name;
+                    tied = false;
+                } else if (score == bestScore) {
+                    tied = true;
+                }
+            }
+
+            // REPLACED must remain conservative: if two rules are equally specific,
+            // do not guess because their non-ARMA semantics (including overrideHead)
+            // may differ even when they render the same replacement set.
+            return best && !tied ? best : std::nullopt;
+        }
+
     private:
         struct VariantRule
         {
@@ -98,6 +132,38 @@ namespace DAVSyncTogether
                 }
             }
 
+            return score;
+        }
+
+        [[nodiscard]] int ScoreReplacedVariant(const WornArmorState& armor, const VariantRule& variant) const
+        {
+            int score = 0;
+
+            for (const auto& base : armor.baseArmorAddons) {
+                if (variant.replaceByForm.contains(base.StableKey())) {
+                    // A form-specific rule is much stronger evidence than a generic slot rule.
+                    score += 10000;
+                    continue;
+                }
+
+                auto* form = base.Resolve();
+                auto* addon = form ? form->As<RE::TESObjectARMA>() : nullptr;
+                if (!addon) {
+                    continue;
+                }
+
+                for (const auto& [slot, replacements] : variant.replaceBySlot) {
+                    (void)replacements;
+                    if (ArmorAddonUsesSlot(addon, slot)) {
+                        score += 1000;
+                        break;
+                    }
+                }
+            }
+
+            // Prefer the narrower rule when two candidates produce the same ARMA set.
+            score -= static_cast<int>(variant.replaceByForm.size() * 10);
+            score -= static_cast<int>(variant.replaceBySlot.size());
             return score;
         }
 
