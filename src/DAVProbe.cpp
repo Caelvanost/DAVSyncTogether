@@ -11,6 +11,7 @@ namespace DAVSyncTogether
     {
         constexpr auto kProbeInterval = std::chrono::milliseconds(500);
         constexpr auto kSleepSlice = std::chrono::milliseconds(100);
+        constexpr auto kPostReequipGuardWindow = std::chrono::seconds(15);
 
         void SortAndUniqueIdentities(std::vector<FormIdentity>& values)
         {
@@ -91,6 +92,7 @@ namespace DAVSyncTogether
         _hasPrevious = false;
         _previous = {};
         _networkTrackedVariants.clear();
+        _recentReequips.clear();
         SKSE::log::info("DAVST DAV armor-state probe reset");
     }
 
@@ -233,6 +235,16 @@ namespace DAVSyncTogether
 
         for (const auto& armor : current.wornArmors) {
             const auto stableKey = armor.armor.StableKey();
+            const bool reappearedAfterUnequip = _hasPrevious && !previousByForm.contains(stableKey);
+            if (reappearedAfterUnequip) {
+                _recentReequips.insert_or_assign(stableKey, std::chrono::steady_clock::now());
+                SKSE::log::info(
+                    "DAVST POST_REEQUIP_GUARD armoStable=\"{}\" state={} action=armed windowMs={}",
+                    stableKey,
+                    ArmorVisualStateName(armor.visualState),
+                    std::chrono::duration_cast<std::chrono::milliseconds>(kPostReequipGuardWindow).count());
+            }
+
             bool changed = !_hasPrevious;
             if (_hasPrevious) {
                 const auto it = previousByForm.find(stableKey);
@@ -289,14 +301,42 @@ namespace DAVSyncTogether
                 }
 
                 if (selected) {
-                    SKSE::log::info(
-                        "DAVST VARIANT_MATCH armoStable=\"{}\" state={} variant=\"{}\" candidates={} action=send-selected",
-                        stableKey,
-                        ArmorVisualStateName(armor.visualState),
-                        *selected,
-                        matches.size());
-                    network.SendArmorState(armor, *selected, false);
-                    _networkTrackedVariants.insert_or_assign(stableKey, *selected);
+                    bool suppressPostReequipWorkaround = false;
+                    if (armor.visualState == ArmorVisualState::Hidden && *selected == "HT_HiddenHelmetWorkaround") {
+                        if (const auto guard = _recentReequips.find(stableKey); guard != _recentReequips.end()) {
+                            const auto age = std::chrono::steady_clock::now() - guard->second;
+                            const auto ageMs = std::chrono::duration_cast<std::chrono::milliseconds>(age).count();
+                            suppressPostReequipWorkaround = age <= kPostReequipGuardWindow;
+                            _recentReequips.erase(guard);
+
+                            if (suppressPostReequipWorkaround) {
+                                SKSE::log::info(
+                                    "DAVST POST_REEQUIP_GUARD armoStable=\"{}\" variant=\"{}\" ageMs={} action=suppress-first-hidden-rebound",
+                                    stableKey,
+                                    *selected,
+                                    ageMs);
+                            } else {
+                                SKSE::log::info(
+                                    "DAVST POST_REEQUIP_GUARD armoStable=\"{}\" variant=\"{}\" ageMs={} action=expired-send",
+                                    stableKey,
+                                    *selected,
+                                    ageMs);
+                            }
+                        }
+                    } else {
+                        _recentReequips.erase(stableKey);
+                    }
+
+                    if (!suppressPostReequipWorkaround) {
+                        SKSE::log::info(
+                            "DAVST VARIANT_MATCH armoStable=\"{}\" state={} variant=\"{}\" candidates={} action=send-selected",
+                            stableKey,
+                            ArmorVisualStateName(armor.visualState),
+                            *selected,
+                            matches.size());
+                        network.SendArmorState(armor, *selected, false);
+                        _networkTrackedVariants.insert_or_assign(stableKey, *selected);
+                    }
                 } else if (armor.visualState == ArmorVisualState::Hidden) {
                     SKSE::log::warn(
                         "DAVST VARIANT_MATCH armoStable=\"{}\" state=HIDDEN candidates={} action=head-safe-no-apply",
@@ -324,6 +364,7 @@ namespace DAVSyncTogether
             for (const auto& armor : _previous.wornArmors) {
                 const auto stableKey = armor.armor.StableKey();
                 if (!currentForms.contains(stableKey)) {
+                    _recentReequips.erase(stableKey);
                     SKSE::log::info(
                         "DAVST ARMOR_STATE armoRuntime={:08X} armoStable=\"{}\" editorID=\"{}\" name=\"{}\" state=UNEQUIPPED baseARMA={} activeARMA=[]",
                         armor.armor.runtimeFormID,
