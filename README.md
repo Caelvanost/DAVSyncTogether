@@ -8,11 +8,27 @@ DAVSync Together handles only DAV-controlled equipment visuals. RaceMenu appeara
 
 ## Current status
 
-**v0.6.2 — proxy-safe REPLACED variant selection**
+**v0.6.3 — post-reequip Helmet Toggle rebound guard**
 
-v0.5.2 established the head-safe DAV-native path for hidden helmets. v0.6.0 added visible replacement (`REPLACED`) synchronization. v0.6.1 fixed actor-specific matching when an ARMO exposes several sex/race Armor Addons but the actor renders only one.
+v0.5.2 established the head-safe DAV-native path for hidden helmets. v0.6.0 added visible replacement (`REPLACED`) synchronization. v0.6.1 fixed actor-specific matching when an ARMO exposes several sex/race Armor Addons but the actor renders only one. v0.6.2 added proxy-safe selection for lowered-hood variants.
 
-Testing the Common Mage Hood with Dynamic Lowered Hoods then exposed a second ambiguity: the same lowered ARMA can be produced by `HT_LoweredHoodsPlayer`, `HT_LoweredHoodsHairOnlyPlayer`, and the generic `LoweredHoods` variant. Helmet Toggle 2 documents the `*Player` variants as local-player variants, while `LoweredHoods` is the NPC variant. STR proxies are NPC-like actors, so v0.6.2 explicitly prefers non-player-scoped DAV variants for network application.
+Testing OStim Together scene teardown exposed a separate Helmet Toggle 2 lifecycle edge case. OStim can restore a previously stripped helmet as a normal `VISIBLE` armor item, then Helmet Toggle 2 can reapply `HT_HiddenHelmetWorkaround` several seconds later. If DAVSync mirrors that automatic rebound immediately, an STR proxy can be left with the worn helmet hidden even when the corresponding alternate display has not been restored yet.
+
+v0.6.3 adds a narrow post-reequip guard for this sequence. When a DAV-tracked armor reappears after being absent, DAVSync arms a short 15-second guard. If the first DAV transition during that window is `HIDDEN` specifically through `HT_HiddenHelmetWorkaround`, that one rebound is suppressed instead of being transmitted. The guard is then consumed. Normal later Helmet Toggle actions continue to synchronize as before.
+
+Expected diagnostics:
+
+```text
+DAVST POST_REEQUIP_GUARD armoStable="..." state=VISIBLE action=armed windowMs=15000
+DAVST POST_REEQUIP_GUARD armoStable="..." variant="HT_HiddenHelmetWorkaround" ageMs=... action=suppress-first-hidden-rebound
+```
+
+If the same workaround transition happens after the guard window, it is treated as a normal user-visible DAV state and is sent:
+
+```text
+DAVST POST_REEQUIP_GUARD armoStable="..." variant="HT_HiddenHelmetWorkaround" ageMs=... action=expired-send
+DAVST VARIANT_MATCH ... state=HIDDEN variant="HT_HiddenHelmetWorkaround" ... action=send-selected
+```
 
 ### REPLACED variant selection
 
@@ -44,7 +60,7 @@ DAVST ARMOR_STATE ... state=REPLACED baseARMA=[...] activeARMA=[...]
 DAVST REPLACED_MATCH ... candidates=N names=[...]
 ```
 
-For the Common Mage Hood + Dynamic Lowered Hoods test, v0.6.2 should select the generic NPC-safe variant:
+For the Common Mage Hood + Dynamic Lowered Hoods test, DAVSync should select the generic NPC-safe variant:
 
 ```text
 DAVST VARIANT_MATCH ... state=REPLACED variant="LoweredHoods" candidates=3 action=send-selected
@@ -72,6 +88,7 @@ The v0.5.2 behavior remains unchanged:
 local DAV rendered state
     -> classify VISIBLE / HIDDEN / REPLACED
     -> infer/rank DAV variant from DAV JSON config
+    -> guard post-reequip HT_HiddenHelmetWorkaround rebound
     -> prefer proxy-safe generic/NPC variant over local-player-only variant
     -> load-order-safe ARMO/ARMA identity
     -> STRPM channel DAVSyncTogether.State.v2
@@ -130,11 +147,33 @@ The Vortex-ready archive is generated under:
 dist/DAVSyncTogether-<version>.zip
 ```
 
-## Test procedure for v0.6.2
+## Test procedure for v0.6.3
 
-Install the same build and DAV configuration on Player1 and Player2 and connect both players before changing variants.
+Install the same build and DAV configuration on Player1 and Player2 and connect both players before testing.
 
-Recommended regression test: **Common Mage Hood** with **Dynamic Lowered Hoods**.
+### Regression A — normal Helmet Toggle synchronization
+
+1. start outside OStim with the helmet visible;
+2. hide it normally through Helmet Toggle 2;
+3. confirm the remote helmet hides and head/hair remain correct;
+4. show it again;
+5. confirm the remote helmet returns.
+
+This normal toggle path must still produce `action=send-selected` for `HT_HiddenHelmetWorkaround`.
+
+### Regression B — OStim scene teardown rebound
+
+1. start an OStim scene that strips the helmet;
+2. end the scene and let OStim restore the helmet;
+3. confirm DAVSync logs `POST_REEQUIP_GUARD ... action=armed` when the armor reappears;
+4. wait for Helmet Toggle 2 to reapply `HT_HiddenHelmetWorkaround`;
+5. confirm DAVSync logs `action=suppress-first-hidden-rebound` and does **not** send a new `HIDDEN` packet for that rebound;
+6. confirm the remote proxy does not get stuck with the helmet missing;
+7. perform a new explicit Helmet Toggle action afterwards and confirm synchronization resumes normally.
+
+### Regression C — visible replacement variants
+
+Recommended regression item: **Common Mage Hood** with **Dynamic Lowered Hoods**.
 
 1. equip the Common Mage Hood in its raised state;
 2. trigger the lowered-hood DAV variant;
