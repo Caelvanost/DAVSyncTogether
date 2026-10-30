@@ -13,6 +13,7 @@ namespace DAVSyncTogether
         bool Start();
         void Stop();
         void SendArmorState(const WornArmorState& armor, std::string_view variant, bool unequipped = false);
+        void SendArmorStateTo(STRPM::ConnectionID connectionID, const WornArmorState& armor, std::string_view variant, bool unequipped = false);
 
         [[nodiscard]] bool IsRunning() const noexcept
         {
@@ -35,7 +36,9 @@ namespace DAVSyncTogether
         DAVNetworkService& operator=(const DAVNetworkService&) = delete;
 
         static void STRPM_CALL OnMessage(const STRPM::Message* message, void* userData);
+        static void STRPM_CALL OnProxyMapping(const STRPM::ProxyMappingEvent* event, void* userData);
         void QueueReceivedMessage(ReceivedMessage message);
+        void SendArmorStateImpl(STRPM::Target target, const WornArmorState& armor, std::string_view variant, bool unequipped, bool replay);
         void HandleReceivedMessageOnGameThread(ReceivedMessage message);
         void UpdateLocalDisplayName();
 
