@@ -114,6 +114,78 @@ namespace DAVSyncTogether
         });
     }
 
+    void DAVProbe::QueueStateReplay(std::uint64_t connectionID)
+    {
+        if (!_running.load() || connectionID == 0) {
+            return;
+        }
+
+        auto* tasks = SKSE::GetTaskInterface();
+        if (!tasks) {
+            SKSE::log::warn(
+                "DAVST STATE_REPLAY connection={} action=dropped reason=no-task-interface",
+                connectionID);
+            return;
+        }
+
+        tasks->AddTask([this, connectionID]() {
+            ReplayStateOnGameThread(connectionID);
+        });
+    }
+
+    void DAVProbe::ReplayStateOnGameThread(std::uint64_t connectionID)
+    {
+        if (!_running.load() || connectionID == 0) {
+            return;
+        }
+
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (!player || !player->Get3D()) {
+            SKSE::log::warn(
+                "DAVST STATE_REPLAY connection={} action=skipped reason=no-local-player-3d",
+                connectionID);
+            return;
+        }
+
+        const auto current = CaptureLocalPlayer(player);
+        auto& network = DAVNetworkService::GetSingleton();
+
+        std::size_t replayed = 0;
+        std::size_t staleTracked = 0;
+
+        for (const auto& armor : current.wornArmors) {
+            const auto stableKey = armor.armor.StableKey();
+            const auto tracked = _networkTrackedVariants.find(stableKey);
+            if (tracked == _networkTrackedVariants.end()) {
+                continue;
+            }
+
+            const bool stillActive =
+                armor.visualState == ArmorVisualState::Hidden ||
+                armor.visualState == ArmorVisualState::Replaced;
+            if (!stillActive) {
+                ++staleTracked;
+                SKSE::log::info(
+                    "DAVST STATE_REPLAY connection={} armoStable=\"{}\" trackedVariant=\"{}\" currentState={} action=skip-stale",
+                    connectionID,
+                    stableKey,
+                    tracked->second,
+                    ArmorVisualStateName(armor.visualState));
+                continue;
+            }
+
+            network.SendArmorStateTo(connectionID, armor, tracked->second, false);
+            ++replayed;
+        }
+
+        SKSE::log::info(
+            "DAVST STATE_REPLAY reason=proxy-mapping connection={} trackedVariants={} replayed={} staleSkipped={}",
+            connectionID,
+            _networkTrackedVariants.size(),
+            replayed,
+            staleTracked);
+    }
+
     DAVStateSnapshot DAVProbe::CaptureLocalPlayer(RE::PlayerCharacter* player) const
     {
         DAVStateSnapshot snapshot;

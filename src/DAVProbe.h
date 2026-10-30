@@ -13,6 +13,7 @@ namespace DAVSyncTogether
         void Stop();
         void Reset();
         void QueueProbe(std::string reason = "tick");
+        void QueueStateReplay(std::uint64_t connectionID);
 
     private:
         using ActiveAddonMap = std::unordered_map<RE::FormID, std::vector<RE::FormID>>;
@@ -24,6 +25,7 @@ namespace DAVSyncTogether
 
         DAVStateSnapshot CaptureLocalPlayer(RE::PlayerCharacter* player) const;
         void TickOnGameThread(std::string reason);
+        void ReplayStateOnGameThread(std::uint64_t connectionID);
         void LogSnapshotDiff(const DAVStateSnapshot& current, std::string_view reason);
 
         static bool IsDAVLoaded();

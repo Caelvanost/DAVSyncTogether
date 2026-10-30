@@ -8,9 +8,11 @@ DAVSync Together handles only DAV-controlled equipment visuals. RaceMenu appeara
 
 ## Current status
 
-**v0.6.3 — post-reequip Helmet Toggle rebound guard**
+**v0.6.4 — late-join DAV state replay**
 
 v0.5.2 established the head-safe DAV-native path for hidden helmets. v0.6.0 added visible replacement (`REPLACED`) synchronization. v0.6.1 fixed actor-specific matching when an ARMO exposes several sex/race Armor Addons but the actor renders only one. v0.6.2 added proxy-safe selection for lowered-hood variants.
+
+v0.6.4 adds late-join state replay. DAVSync now subscribes to STRPM ProxyResolver mapping events and, when a remote proxy is added or updated, replays the local player's currently authoritative DAV variants directly to that connection. This fixes cases where a helmet or hood was already hidden/replaced before the other player joined. Replay uses `_networkTrackedVariants`, so states intentionally suppressed by the v0.6.3 post-OStim guard are not resurrected for late joiners.
 
 Testing OStim Together scene teardown exposed a separate Helmet Toggle 2 lifecycle edge case. OStim can restore a previously stripped helmet as a normal `VISIBLE` armor item, then Helmet Toggle 2 can reapply `HT_HiddenHelmetWorkaround` several seconds later. If DAVSync mirrors that automatic rebound immediately, an STR proxy can be left with the worn helmet hidden even when the corresponding alternate display has not been restored yet.
 
@@ -147,9 +149,35 @@ The Vortex-ready archive is generated under:
 dist/DAVSyncTogether-<version>.zip
 ```
 
-## Test procedure for v0.6.3
+## Test procedure for v0.6.4
 
-Install the same build and DAV configuration on Player1 and Player2 and connect both players before testing.
+Install the same build and DAV configuration on Player1 and Player2.
+
+### Regression 0 — late join state replay
+
+1. start Player1 alone;
+2. hide a DAV-controlled helmet with Helmet Toggle 2 before Player2 connects;
+3. connect Player2;
+4. confirm Player1 logs a proxy mapping event and targeted replay;
+5. confirm Player2 receives and applies the hidden variant immediately;
+6. repeat with a visible replacement such as a lowered hood;
+7. repeat in the opposite player direction.
+
+Expected sender diagnostics:
+
+```text
+DAVST PROXY_MAPPING type=ADDED connection=... oldForm=00000000 newForm=... action=queue-state-replay
+DAVST STRPM TX_REPLAY connection=... armoStable="..." state=HIDDEN variant="HT_HiddenHelmetWorkaround" ... result=ok
+DAVST STATE_REPLAY reason=proxy-mapping connection=... trackedVariants=1 replayed=1 staleSkipped=0
+```
+
+Expected receiver diagnostics:
+
+```text
+DAVST STRPM RX_STATE ... state=HIDDEN variant="HT_HiddenHelmetWorkaround" ... apply=1
+```
+
+The replay is targeted only at the newly mapped connection and does not rebroadcast to already-connected players.
 
 ### Regression A — normal Helmet Toggle synchronization
 
